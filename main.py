@@ -122,7 +122,7 @@ def main():
 
     # Initialize Instagram bot
     client = Client()
-    client.login(username="strike_zone_news", password="Angels87!")
+    client.login(username="your_username", password="your_password")
 
     # List of subreddits to scrape
     subreddits = ['MMA', 'ufc', 'mmamemes', 'martialarts', 'kickboxing']
