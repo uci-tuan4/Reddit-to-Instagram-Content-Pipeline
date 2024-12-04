@@ -1,200 +1,139 @@
+# First we'll need these libraries
 import praw
 import pandas as pd
-from datetime import datetime
-import json
 import requests
-from typing import List, Dict
 import os
-from time import sleep
+from datetime import datetime
+from instabot import Bot
+import time
 
 
-class RedditContentScraper:
+def setup_reddit_client():
     """
-    A class to scrape content from specified MMA-related subreddits
-    and prepare it for posting to social media platforms.
+    Creates and returns an authenticated Reddit client.
+    You'll need to set up a Reddit application first at https://www.reddit.com/prefs/apps
     """
-
-    def __init__(self, client_id: str, client_secret: str, user_agent: str):
-        """
-        Initialize the Reddit scraper with your API credentials.
-
-        Args:
-            client_id: Your Reddit API client ID
-            client_secret: Your Reddit API client secret
-            user_agent: A unique identifier for your application
-        """
-        self.reddit = praw.Reddit(
-            client_id=client_id,
-            client_secret=client_secret,
-            user_agent=user_agent
-        )
-
-        # Subreddits we want to monitor
-        self.subreddits = ['MMA', 'UFC', 'mmamemes', 'martialarts']
-
-        # Track processed posts to avoid duplicates
-        self.processed_posts = set()
-
-    def get_top_posts(self, subreddit: str, time_filter: str = 'day', limit: int = 10) -> List[Dict]:
-        """
-        Fetch top posts from a specified subreddit.
-
-        Args:
-            subreddit: Name of the subreddit to scrape
-            time_filter: Time period to consider ('day', 'week', 'month', 'year', 'all')
-            limit: Maximum number of posts to fetch
-
-        Returns:
-            List of dictionaries containing post information
-        """
-        posts = []
-        subreddit = self.reddit.subreddit(subreddit)
-
-        for post in subreddit.top(time_filter=time_filter, limit=limit):
-            # Skip if we've already processed this post
-            if post.id in self.processed_posts:
-                continue
-
-            # Create a post dictionary with relevant information
-            post_data = {
-                'id': post.id,
-                'title': post.title,
-                'url': post.url,
-                'permalink': f'https://reddit.com{post.permalink}',
-                'score': post.score,
-                'created_utc': datetime.fromtimestamp(post.created_utc),
-                'author': str(post.author),
-                'subreddit': post.subreddit.display_name,
-                'is_video': post.is_video,
-                'media_type': self._determine_media_type(post.url)
-            }
-
-            # Add post to our list and mark as processed
-            posts.append(post_data)
-            self.processed_posts.add(post.id)
-
-        return posts
-
-    def _determine_media_type(self, url: str) -> str:
-        """
-        Determine the type of media from the URL.
-
-        Args:
-            url: URL to analyze
-
-        Returns:
-            String indicating media type ('image', 'video', 'gif', 'text', or 'other')
-        """
-        lower_url = url.lower()
-        if any(ext in lower_url for ext in ['.jpg', '.jpeg', '.png']):
-            return 'image'
-        elif any(ext in lower_url for ext in ['.mp4', '.mov']):
-            return 'video'
-        elif '.gif' in lower_url:
-            return 'gif'
-        elif 'reddit.com/r/' in lower_url:
-            return 'text'
-        else:
-            return 'other'
+    reddit = praw.Reddit(
+        client_id="YOUR_CLIENT_ID",
+        client_secret="YOUR_CLIENT_SECRET",
+        user_agent="MMA_News_Aggregator v1.0 by YOUR_USERNAME"
+    )
+    return reddit
 
 
-class BufferPreparer:
+def download_media(url, filename):
     """
-    Prepares scraped content for posting to Buffer.
+    Downloads media from a URL and saves it with the given filename.
+    Returns the path to the saved file.
     """
+    response = requests.get(url)
+    if response.status_code == 200:
+        with open(filename, 'wb') as f:
+            f.write(response.content)
+        return filename
+    return None
 
-    def __init__(self, buffer_api_token: str):
-        """
-        Initialize the Buffer preparer with your API credentials.
 
-        Args:
-            buffer_api_token: Your Buffer API access token
-        """
-        self.buffer_api_token = buffer_api_token
+def scrape_subreddit_posts(reddit, subreddit_name, limit=10, post_type="all"):
+    """
+    Scrapes posts from a specified subreddit.
+    post_type can be "all", "image", or "video"
+    """
+    subreddit = reddit.subreddit(subreddit_name)
+    posts_data = []
 
-    def prepare_post(self, post_data: Dict) -> Dict:
-        """
-        Format a Reddit post for Buffer.
+    for post in subreddit.hot(limit=limit):
+        # Skip posts that don't have media if we're looking for specific types
+        if post_type == "image" and not post.url.endswith(('.jpg', '.jpeg', '.png')):
+            continue
+        if post_type == "video" and not hasattr(post, 'is_video'):
+            continue
 
-        Args:
-            post_data: Dictionary containing post information
-
-        Returns:
-            Dictionary formatted for Buffer API
-        """
-        # Create a caption that includes attribution
-        caption = (
-            f"{post_data['title']}\n\n"
-            f"Credit: u/{post_data['author']} on r/{post_data['subreddit']}\n\n"
-            "#MMA #UFC #MMANews #UFCNews #MixedMartialArts"
-        )
-
-        return {
-            'text': caption,
-            'media': {
-                'photo': post_data['url'] if post_data['media_type'] == 'image' else None,
-                'video': post_data['url'] if post_data['media_type'] == 'video' else None
-            },
-            'source_link': post_data['permalink']
+        post_data = {
+            'title': post.title,
+            'url': post.url,
+            'score': post.score,
+            'id': post.id,
+            'author': str(post.author),
+            'created_utc': datetime.fromtimestamp(post.created_utc),
+            'permalink': f"https://reddit.com{post.permalink}",
+            'is_video': hasattr(post, 'is_video') and post.is_video
         }
+        posts_data.append(post_data)
 
-    def queue_to_buffer(self, prepared_post: Dict) -> bool:
-        """
-        Send a prepared post to Buffer's queue.
+    return pd.DataFrame(posts_data)
 
-        Args:
-            prepared_post: Dictionary containing the formatted post
 
-        Returns:
-            Boolean indicating success or failure
-        """
-        # This is a placeholder for the actual Buffer API implementation
-        # You'll need to implement this based on Buffer's API documentation
-        endpoint = "https://api.buffer.com/1/updates/create"
-        headers = {"Authorization": f"Bearer {self.buffer_api_token}"}
+def prepare_instagram_post(post_data):
+    """
+    Prepares a Reddit post for Instagram by downloading media and formatting caption.
+    Returns tuple of (media_path, caption)
+    """
+    # Create a directory for media if it doesn't exist
+    if not os.path.exists('media'):
+        os.makedirs('media')
 
-        try:
-            response = requests.post(endpoint, json=prepared_post, headers=headers)
-            return response.status_code == 200
-        except Exception as e:
-            print(f"Error queuing post to Buffer: {e}")
-            return False
+    # Download the media
+    filename = f"media/{post_data['id']}.jpg"
+    media_path = download_media(post_data['url'], filename)
+
+    # Prepare the caption
+    caption = f"""{post_data['title']} 🔥🔥🔥
+
+#mma #ufc #mixedmartialarts #mmafıghter #mmanews #mmalife #ufcnews #mmacommunity #ufcvegas #ufcfıghter #champion 
+#mmafıghters #wrestling #kickboxing #boxing #breakingmma #mmatalk #combatsports #mixedmartialarts #bjj
+#mmastriking #submission #mmatraining #ko"""
+
+    return media_path, caption
+
+
+def post_to_instagram(bot, media_path, caption):
+    """
+    Posts the prepared content to Instagram.
+    Returns True if successful, False otherwise.
+    """
+    try:
+        bot.upload_photo(media_path, caption=caption)
+        # Instagram requires a delay between posts
+        time.sleep(30)
+        return True
+    except Exception as e:
+        print(f"Error posting to Instagram: {e}")
+        return False
 
 
 def main():
-    """
-    Main function to run the content pipeline.
-    """
-    # Load configuration from environment variables or a config file
-    reddit_client_id = os.getenv('REDDIT_CLIENT_ID')
-    reddit_client_secret = os.getenv('REDDIT_CLIENT_SECRET')
-    reddit_user_agent = os.getenv('REDDIT_USER_AGENT')
-    buffer_api_token = os.getenv('BUFFER_API_TOKEN')
+    # Initialize Reddit client
+    reddit = setup_reddit_client()
 
-    # Initialize our classes
-    scraper = RedditContentScraper(reddit_client_id, reddit_client_secret, reddit_user_agent)
-    buffer_prep = BufferPreparer(buffer_api_token)
+    # Initialize Instagram bot
+    bot = Bot()
+    bot.login(username="YOUR_INSTAGRAM_USERNAME", password="YOUR_INSTAGRAM_PASSWORD")
 
-    # Process each subreddit
-    for subreddit in scraper.subreddits:
-        # Get top posts
-        posts = scraper.get_top_posts(subreddit, time_filter='day', limit=5)
+    # List of subreddits to scrape
+    subreddits = ['MMA', 'ufc', 'mmamemes', 'martialarts']
 
-        # Process each post
-        for post in posts:
-            # Prepare the post for Buffer
-            prepared_post = buffer_prep.prepare_post(post)
+    for subreddit in subreddits:
+        # Scrape posts
+        posts = scrape_subreddit_posts(reddit, subreddit, limit=5, post_type="image")
 
-            # Queue to Buffer
-            success = buffer_prep.queue_to_buffer(prepared_post)
+        for _, post in posts.iterrows():
+            # Prepare the post for Instagram
+            media_path, caption = prepare_instagram_post(post)
 
-            if success:
-                print(f"Successfully queued post from r/{subreddit}: {post['title']}")
-            else:
-                print(f"Failed to queue post from r/{subreddit}: {post['title']}")
+            if media_path:
+                # Post to Instagram
+                success = post_to_instagram(bot, media_path, caption)
+                if success:
+                    print(f"Successfully posted {post['title']}")
+                else:
+                    print(f"Failed to post {post['title']}")
 
-            # Be nice to the APIs
-            sleep(2)
+                # Clean up downloaded media
+                os.remove(media_path)
+
+            # Wait between posts to avoid Instagram's rate limits
+            time.sleep(600)  # 10 minutes between posts
 
 
 if __name__ == "__main__":
