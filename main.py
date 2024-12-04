@@ -1,10 +1,9 @@
-# First we'll need these libraries
 import praw
 import pandas as pd
 import requests
 import os
 from datetime import datetime
-from instabot import Bot
+from instagrapi import Client
 import time
 
 
@@ -14,9 +13,9 @@ def setup_reddit_client():
     You'll need to set up a Reddit application first at https://www.reddit.com/prefs/apps
     """
     reddit = praw.Reddit(
-        client_id="YOUR_CLIENT_ID",
-        client_secret="YOUR_CLIENT_SECRET",
-        user_agent="MMA_News_Aggregator v1.0 by YOUR_USERNAME"
+        client_id="your_client_id",
+        client_secret="your_client_secret",
+        user_agent="your_user_agent"
     )
     return reddit
 
@@ -33,6 +32,22 @@ def download_media(url, filename):
         return filename
     return None
 
+
+def get_user_approval(post_data):
+    print("\n" + "=" * 50)
+    # Safely access dictionary values with .get() method to avoid KeyError
+    print(f"Subreddit: r/{post_data.get('subreddit', 'Unknown')}")
+    print(f"Title: {post_data.get('title', 'No title')}")
+    print(f"Author: u/{post_data.get('author', 'Unknown')}")
+    print(f"Score: {post_data.get('score', 0)}")
+    print(f"URL: {post_data.get('url', 'No URL')}")
+    print("=" * 50)
+
+    while True:
+        response = input("\nWould you like to post this? (yes/no): ").lower().strip()
+        if response in ['yes', 'no']:
+            return response == 'yes'
+        print("Please enter 'yes' or 'no'")
 
 def scrape_subreddit_posts(reddit, subreddit_name, limit=10, post_type="all"):
     """
@@ -87,15 +102,14 @@ def prepare_instagram_post(post_data):
     return media_path, caption
 
 
-def post_to_instagram(bot, media_path, caption):
+def post_to_instagram(client, media_path, caption):
     """
-    Posts the prepared content to Instagram.
+    Posts the prepared content to Instagram using instagrapi.
     Returns True if successful, False otherwise.
     """
     try:
-        bot.upload_photo(media_path, caption=caption)
-        # Instagram requires a delay between posts
-        time.sleep(30)
+        client.photo_upload(media_path, caption)
+        time.sleep(30)  # Cooldown period after posting
         return True
     except Exception as e:
         print(f"Error posting to Instagram: {e}")
@@ -107,33 +121,48 @@ def main():
     reddit = setup_reddit_client()
 
     # Initialize Instagram bot
-    bot = Bot()
-    bot.login(username="YOUR_INSTAGRAM_USERNAME", password="YOUR_INSTAGRAM_PASSWORD")
+    client = Client()
+    client.login(username="strike_zone_news", password="Angels87!")
 
     # List of subreddits to scrape
-    subreddits = ['MMA', 'ufc', 'mmamemes', 'martialarts']
+    subreddits = ['MMA', 'ufc', 'mmamemes', 'martialarts', 'kickboxing']
+    posts_queue = []
 
+    # Collect posts from all subreddits
     for subreddit in subreddits:
-        # Scrape posts
-        posts = scrape_subreddit_posts(reddit, subreddit, limit=5, post_type="image")
+        print(f"\nScraping posts from r/{subreddit}...")
+        subreddit_posts = scrape_subreddit_posts(reddit, subreddit, limit=5, post_type="image")
+        posts_queue.extend(subreddit_posts.to_dict('records'))
 
-        for _, post in posts.iterrows():
-            # Prepare the post for Instagram
+    # Sort posts by score to show the most popular ones first
+    posts_queue.sort(key=lambda x: x['score'], reverse=True)
+
+    posts_processed = 0
+    for post in posts_queue:
+        # Ask for approval before processing
+        if get_user_approval(post):
+            print("\nProcessing approved post...")
             media_path, caption = prepare_instagram_post(post)
 
             if media_path:
-                # Post to Instagram
-                success = post_to_instagram(bot, media_path, caption)
+                success = post_to_instagram(client, media_path, caption)
                 if success:
-                    print(f"Successfully posted {post['title']}")
+                    print(f"Successfully posted: {post['title']}")
+                    posts_processed += 1
                 else:
-                    print(f"Failed to post {post['title']}")
+                    print(f"Failed to post: {post['title']}")
 
                 # Clean up downloaded media
                 os.remove(media_path)
 
-            # Wait between posts to avoid Instagram's rate limits
-            time.sleep(600)  # 10 minutes between posts
+                # Wait between successful posts
+                if success:
+                    print("\nWaiting 10 minutes before next post...")
+                    time.sleep(600)
+        else:
+            print("Post skipped. Moving to next post...")
+
+    print(f"\nSession complete. Posted {posts_processed} items to Instagram.")
 
 
 if __name__ == "__main__":
