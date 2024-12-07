@@ -7,17 +7,100 @@ from instagrapi import Client
 import time
 
 
-def setup_reddit_client():
+def get_credentials():
+    """
+    Gets Reddit API and Instagram credentials from user input.
+    Returns tuple of (reddit_client_id, reddit_client_secret, reddit_username,
+                     instagram_username, instagram_password)
+    """
+    print("\n=== Reddit API Credentials ===")
+    print("(Get these from https://www.reddit.com/prefs/apps)")
+    reddit_client_id = input("Enter Reddit Client ID: ").strip()
+    reddit_client_secret = input("Enter Reddit Client Secret: ").strip()
+    reddit_username = input("Enter your Reddit User Agent (Example: MMA_News_Aggregator v1.0 by {username}): ").strip()
+
+    print("\n=== Instagram Credentials ===")
+    instagram_username = input("Enter Instagram username: ").strip()
+    instagram_password = input("Enter Instagram password: ").strip()
+
+    return (reddit_client_id, reddit_client_secret, reddit_username,
+            instagram_username, instagram_password)
+
+
+def get_subreddit_list(reddit):
+    """
+    Allows user to customize the list of subreddits to scrape.
+    Returns list of validated subreddit names.
+    """
+    default_subreddits = ['mma', 'ufc', 'mmamemes']
+
+    print("\n=== Subreddit Selection ===")
+    print("Current default subreddits:", ", ".join(f"r/{sub}" for sub in default_subreddits))
+
+    while True:
+        choice = input("\nWould you like to modify the subreddit list? (yes/no): ").lower().strip()
+        if choice == 'yes':
+            subreddits = []
+            print("\nEnter subreddit names one at a time (without r/).")
+            print("Press Enter twice when done.")
+
+            while True:
+                sub = input("Enter subreddit name (or press Enter to finish): ").strip()
+                if not sub:  # User pressed Enter without input
+                    if not subreddits:  # No subreddits entered
+                        print("No subreddits entered. Using defaults.")
+                        return default_subreddits
+                    break
+
+                # Validate subreddit exists
+                try:
+                    reddit.subreddit(sub).id  # This will raise an error if subreddit doesn't exist
+                    subreddits.append(sub)
+                    print(f"Added r/{sub} to list")
+                except Exception as e:
+                    print(f"Error: r/{sub} not found or not accessible. Please try another.")
+
+            print("\nFinal subreddit list:", ", ".join(f"r/{sub}" for sub in subreddits))
+            return subreddits
+
+        elif choice == 'no':
+            print("Using default subreddit list.")
+            return default_subreddits
+
+        print("Please enter 'yes' or 'no'")
+
+
+def setup_instagram_client(username, password):
+    """
+    Creates and returns an authenticated Instagram client.
+    """
+    try:
+        client = Client()
+        client.login(username, password)
+        print("\nSuccessfully logged into Instagram!")
+        return client
+    except Exception as e:
+        print(f"\nError logging into Instagram: {e}")
+        return None
+
+
+def setup_reddit_client(client_id, client_secret, username):
     """
     Creates and returns an authenticated Reddit client.
-    You'll need to set up a Reddit application first at https://www.reddit.com/prefs/apps
     """
-    reddit = praw.Reddit(
-        client_id="your_client_id",
-        client_secret="your_client_secret",
-        user_agent="your_user_agent"
-    )
-    return reddit
+    try:
+        reddit = praw.Reddit(
+            client_id=client_id,
+            client_secret=client_secret,
+            user_agent=f"{username}"
+        )
+        # Test the connection
+        reddit.user.me()
+        print("\nSuccessfully connected to Reddit API!")
+        return reddit
+    except Exception as e:
+        print(f"\nError connecting to Reddit: {e}")
+        return None
 
 
 def download_media(url, filename):
@@ -95,9 +178,7 @@ def prepare_instagram_post(post_data):
     # Prepare the caption
     caption = f"""{post_data['title']} 🔥🔥🔥
 
-#mma #ufc #mixedmartialarts #mmafıghter #mmanews #mmalife #ufcnews #mmacommunity #ufcvegas #ufcfıghter #champion 
-#mmafıghters #wrestling #kickboxing #boxing #breakingmma #mmatalk #combatsports #mixedmartialarts #bjj
-#mmastriking #submission #mmatraining #ko"""
+#mma #ufc #viral #fyp #mixedmartialarts #mmafıghter #mmanews #ufcnews #mmacommunity #ufcfıghter #champion #mmafıghters #wrestling #kickboxing #boxing #combatsports #mixedmartialarts #bjj #mmastriking #submission #mmatraining #ko #muaythai #jiujitsu"""
 
     return media_path, caption
 
@@ -117,25 +198,42 @@ def post_to_instagram(client, media_path, caption):
 
 
 def main():
-    # Initialize Reddit client
-    reddit = setup_reddit_client()
+    print("Welcome to Tu's Reddit to Instagram Pipeline!")
+    print("Please enter your credentials to begin.")
 
-    # Initialize Instagram bot
-    client = Client()
-    client.login(username="your_username", password="your_password")
+    # Get credentials from user
+    credentials = get_credentials()
 
-    # List of subreddits to scrape
-    subreddits = ['MMA', 'ufc', 'mmamemes', 'martialarts', 'kickboxing']
+    # Setup Reddit client
+    reddit = setup_reddit_client(credentials[0], credentials[1], credentials[2])
+    if not reddit:
+        print("Failed to set up Reddit client. Exiting...")
+        return
+
+    # Setup Instagram client
+    instagram = setup_instagram_client(credentials[3], credentials[4])
+    if not instagram:
+        print("Failed to set up Instagram client. Exiting...")
+        return
+
+    # Get customized subreddit list
+    subreddits = get_subreddit_list(reddit)
     posts_queue = []
 
     # Collect posts from all subreddits
     for subreddit in subreddits:
         print(f"\nScraping posts from r/{subreddit}...")
-        subreddit_posts = scrape_subreddit_posts(reddit, subreddit, limit=5, post_type="image")
+        subreddit_posts = scrape_subreddit_posts(reddit, subreddit, limit=20, post_type="image")
         posts_queue.extend(subreddit_posts.to_dict('records'))
+
+    if not posts_queue:
+        print("\nNo posts found in the selected subreddits. Exiting...")
+        return
 
     # Sort posts by score to show the most popular ones first
     posts_queue.sort(key=lambda x: x['score'], reverse=True)
+
+    print(f"\nFound {len(posts_queue)} posts to review.")
 
     posts_processed = 0
     for post in posts_queue:
@@ -145,7 +243,7 @@ def main():
             media_path, caption = prepare_instagram_post(post)
 
             if media_path:
-                success = post_to_instagram(client, media_path, caption)
+                success = post_to_instagram(instagram, media_path, caption)
                 if success:
                     print(f"Successfully posted: {post['title']}")
                     posts_processed += 1
