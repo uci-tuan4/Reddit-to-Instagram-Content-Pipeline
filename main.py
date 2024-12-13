@@ -116,10 +116,12 @@ def get_subreddit_list(reddit):
         print("Please enter 'yes' or 'no'")
 
 
-def setup_instagram_client(username, password):
+def setup_instagram_client(instagram_credentials):
     """
     Creates and returns an authenticated Instagram client.
     """
+    username = instagram_credentials["instagram_username"]
+    password = instagram_credentials["instagram_password"]
     try:
         client = Client()
         client.login(username, password)
