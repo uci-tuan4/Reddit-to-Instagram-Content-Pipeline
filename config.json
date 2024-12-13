@@ -1,0 +1,11 @@
+{
+    "reddit": {
+        "reddit_client_id": "",
+        "reddit_client_secret": "",
+        "reddit_username": ""
+    },
+    "instagram": {
+        "instagram_username": "",
+        "instagram_password": ""
+    }
+}
