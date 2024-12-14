@@ -5,26 +5,72 @@ import os
 from datetime import datetime
 from instagrapi import Client
 import time
+import json
+
+CONFIG_FILE = "config.json"
+
+def read_config():
+    with open(CONFIG_FILE, "r") as file:
+        return json.load(file)
+
+# Update configuration
+def update_config(updates):
+    config = read_config()
+    config.update(updates)  # Merge updates into the current config
+    with open(CONFIG_FILE, "w") as file:
+        json.dump(config, file, indent=4)
+
+
 
 
 def get_credentials():
     """
     Gets Reddit API and Instagram credentials from user input.
-    Returns tuple of (reddit_client_id, reddit_client_secret, reddit_username,
-                     instagram_username, instagram_password)
+    Returns json config in the following format:
+    { 
+        "reddit": {
+            "reddit_client_id", 
+            "reddit_client_secret", 
+            "reddit_username"
+        },
+
+        "instagram": {
+            "instagram_username", 
+            "instagram_password"
+        }
+    }
     """
-    print("\n=== Reddit API Credentials ===")
+    config = read_config()
+
+
+    reddit_config = config["reddit"]
+    instagram_config = config["instagram"]
+
+    print("\n=== Reading Reddit API Credentials ===")
     print("(Get these from https://www.reddit.com/prefs/apps)")
-    reddit_client_id = input("Enter Reddit Client ID: ").strip()
-    reddit_client_secret = input("Enter Reddit Client Secret: ").strip()
-    reddit_username = input("Enter your Reddit User Agent (Example: MMA_News_Aggregator v1.0 by {username}): ").strip()
 
-    print("\n=== Instagram Credentials ===")
-    instagram_username = input("Enter Instagram username: ").strip()
-    instagram_password = input("Enter Instagram password: ").strip()
+    if reddit_config["reddit_client_id"] == "":
+        reddit_config["reddit_client_id"] = input("Enter Reddit Client ID: ").strip()
+    
+    if reddit_config["reddit_client_secret"] == "":
+        reddit_config["reddit_client_secret"] = input("Enter Reddit Client Secret: ").strip()
 
-    return (reddit_client_id, reddit_client_secret, reddit_username,
-            instagram_username, instagram_password)
+    if reddit_config["reddit_username"] == "":
+        reddit_config["reddit_username"] = input("Enter your Reddit User Agent (Example: MMA_News_Aggregator v1.0 by {username}): ").strip()
+
+    print("\n=== Reading Instagram Credentials ===")
+
+    if instagram_config["instagram_username"] == "":
+        instagram_config["instagram_username"] = input("Enter Instagram username: ").strip()
+    
+    if instagram_config["instagram_password"] == "":
+        instagram_config["instagram_password"] = input("Enter Instagram password: ").strip()
+
+    update_config(config)
+    return config
+
+
+
 
 
 def get_subreddit_list(reddit):
@@ -70,10 +116,12 @@ def get_subreddit_list(reddit):
         print("Please enter 'yes' or 'no'")
 
 
-def setup_instagram_client(username, password):
+def setup_instagram_client(instagram_credentials):
     """
     Creates and returns an authenticated Instagram client.
     """
+    username = instagram_credentials["instagram_username"]
+    password = instagram_credentials["instagram_password"]
     try:
         client = Client()
         client.login(username, password)
@@ -84,10 +132,15 @@ def setup_instagram_client(username, password):
         return None
 
 
-def setup_reddit_client(client_id, client_secret, username):
+def setup_reddit_client(reddit_credentials):
     """
     Creates and returns an authenticated Reddit client.
     """
+
+    client_id = reddit_credentials["reddit_username"]
+    client_secret = reddit_credentials["reddit_client_secret"]
+    username = reddit_credentials["reddit_client_id"]
+
     try:
         reddit = praw.Reddit(
             client_id=client_id,
@@ -128,8 +181,8 @@ def get_user_approval(post_data):
 
     while True:
         response = input("\nWould you like to post this? (yes/no): ").lower().strip()
-        if response in ['yes', 'no']:
-            return response == 'yes'
+        if response in ['yes', 'y', 'no', 'n']:
+            return response == 'yes' or response == 'y'
         print("Please enter 'yes' or 'no'")
 
 def scrape_subreddit_posts(reddit, subreddit_name, limit=10, post_type="all"):
@@ -205,13 +258,13 @@ def main():
     credentials = get_credentials()
 
     # Setup Reddit client
-    reddit = setup_reddit_client(credentials[0], credentials[1], credentials[2])
+    reddit = setup_reddit_client(credentials["reddit"])
     if not reddit:
         print("Failed to set up Reddit client. Exiting...")
         return
 
     # Setup Instagram client
-    instagram = setup_instagram_client(credentials[3], credentials[4])
+    instagram = setup_instagram_client(credentials["instagram"])
     if not instagram:
         print("Failed to set up Instagram client. Exiting...")
         return
@@ -233,32 +286,31 @@ def main():
     # Sort posts by score to show the most popular ones first
     posts_queue.sort(key=lambda x: x['score'], reverse=True)
 
+    posts_queue = [post for post in posts_queue if get_user_approval(post)]
+
     print(f"\nFound {len(posts_queue)} posts to review.")
+
 
     posts_processed = 0
     for post in posts_queue:
         # Ask for approval before processing
-        if get_user_approval(post):
-            print("\nProcessing approved post...")
-            media_path, caption = prepare_instagram_post(post)
+        media_path, caption = prepare_instagram_post(post)
 
-            if media_path:
-                success = post_to_instagram(instagram, media_path, caption)
-                if success:
-                    print(f"Successfully posted: {post['title']}")
-                    posts_processed += 1
-                else:
-                    print(f"Failed to post: {post['title']}")
+        if media_path:
+            success = post_to_instagram(instagram, media_path, caption)
+            if success:
+                print(f"Successfully posted: {post['title']}")
+                posts_processed += 1
+            else:
+                print(f"Failed to post: {post['title']}")
 
-                # Clean up downloaded media
-                os.remove(media_path)
+            # Clean up downloaded media
+            os.remove(media_path)
 
-                # Wait between successful posts
-                if success:
-                    print("\nWaiting 10 minutes before next post...")
-                    time.sleep(600)
-        else:
-            print("Post skipped. Moving to next post...")
+            # Wait between successful posts
+            if success:
+                print("\nWaiting 10 minutes before next post...")
+                time.sleep(600)
 
     print(f"\nSession complete. Posted {posts_processed} items to Instagram.")
 
