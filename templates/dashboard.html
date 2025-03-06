@@ -1,0 +1,154 @@
+<!-- templates/dashboard.html -->
+{% extends "base.html" %}
+
+{% block content %}
+<div class="dashboard-container">
+
+    <div id="loading-overlay" class="loading-overlay d-none">
+    <div class="loading-content">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <div class="loading-message mt-3">Loading...</div>
+    </div>
+    </div>
+
+    <div class="toast-container"></div>
+
+    <!-- Sidebar -->
+    <div class="row">
+        <div class="col-md-3">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Subreddit Selection</h5>
+                </div>
+                <div class="card-body">
+                    <div id="default-subreddits">
+                        <h6>Default Subreddits</h6>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" value="MMA" id="mma" checked>
+                            <label class="form-check-label" for="mma">r/MMA</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" value="ufc" id="ufc" checked>
+                            <label class="form-check-label" for="ufc">r/UFC</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" value="mmamemes" id="mmamemes" checked>
+                            <label class="form-check-label" for="mmamemes">r/MMAMemes</label>
+                        </div>
+                    </div>
+
+                    <div class="mt-3">
+                        <h6>Add Custom Subreddit</h6>
+                        <div class="input-group mb-3">
+                            <input type="text" class="form-control" id="custom-subreddit" placeholder="Enter subreddit name">
+                            <button class="btn btn-outline-secondary" type="button" id="add-subreddit">Add</button>
+                        </div>
+                    </div>
+
+                    <button id="fetch-posts" class="btn btn-primary w-100 mt-3">
+                        Fetch Posts
+                    </button>
+                </div>
+            </div>
+
+            <!-- Status Panel -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Status</h5>
+                </div>
+                <div class="card-body">
+                    <div class="status-item">
+                        <span>Posts Fetched:</span>
+                        <span id="posts-fetched-count">0</span>
+                    </div>
+                    <div class="status-item">
+                        <span>Posts Approved:</span>
+                        <span id="posts-approved-count">0</span>
+                    </div>
+                    <div class="status-item">
+                        <span>Posts Posted:</span>
+                        <span id="posts-posted-count">0</span>
+                    </div>
+                    <div class="progress mt-3">
+                        <div class="progress-bar" role="progressbar" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content Area -->
+        <div class="col-md-9">
+            <!-- Post Review Section -->
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Post Review</h5>
+                    <div class="btn-group" role="group">
+                        <button type="button" class="btn btn-outline-secondary" id="prev-post">Previous</button>
+                        <button type="button" class="btn btn-outline-secondary" id="next-post">Next</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div id="post-review-container" class="d-none">
+                        <div class="post-info mb-3">
+                            <h4 id="post-title"></h4>
+                            <div class="post-metadata">
+                                <span class="badge bg-primary" id="post-subreddit"></span>
+                                <span class="badge bg-secondary" id="post-author"></span>
+                                <span class="badge bg-info" id="post-score"></span>
+                            </div>
+                        </div>
+
+                        <div class="post-media-container mb-3">
+                            <img id="post-media" class="img-fluid rounded" src="" alt="Post media">
+                        </div>
+
+                        <div class="caption-preview mb-3">
+                            <h6>Caption Preview</h6>
+                            <div class="card">
+                                <div class="card-body" id="caption-text">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="action-buttons">
+                            <button class="btn btn-danger" id="reject-post">Reject</button>
+                            <button class="btn btn-success" id="approve-post">Approve</button>
+                        </div>
+                    </div>
+
+                    <div id="no-posts-message" class="text-center py-5">
+                        <h4>No posts to review</h4>
+                        <p>Use the "Fetch Posts" button to get started</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Queue Section -->
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Posting Queue</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Title</th>
+                                    <th>Subreddit</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="queue-table-body">
+                                <!-- Queue items will be inserted here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
