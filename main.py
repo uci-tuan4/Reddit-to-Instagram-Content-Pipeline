@@ -43,7 +43,7 @@ def get_credentials():
     config = read_config()
 
 
-    reddit_config = config["reddit"]
+    reddit_config = config["reddit_credentials"]
     instagram_config = config["instagram"]
 
     print("\n=== Reading Reddit API Credentials ===")
@@ -78,7 +78,7 @@ def get_subreddit_list(reddit):
     Allows user to customize the list of subreddits to scrape.
     Returns list of validated subreddit names.
     """
-    default_subreddits = ['mma', 'ufc', 'mmamemes']
+    default_subreddits = ['MMA', 'ufc', 'mmamemes']
 
     print("\n=== Subreddit Selection ===")
     print("Current default subreddits:", ", ".join(f"r/{sub}" for sub in default_subreddits))
@@ -137,15 +137,15 @@ def setup_reddit_client(reddit_credentials):
     Creates and returns an authenticated Reddit client.
     """
 
-    client_id = reddit_credentials["reddit_username"]
+    client_id = reddit_credentials["reddit_client_id"]
     client_secret = reddit_credentials["reddit_client_secret"]
-    username = reddit_credentials["reddit_client_id"]
+    username = reddit_credentials["reddit_username"]
 
     try:
         reddit = praw.Reddit(
             client_id=client_id,
             client_secret=client_secret,
-            user_agent=f"{username}"
+            user_agent=username
         )
         # Test the connection
         reddit.user.me()
@@ -258,7 +258,7 @@ def main():
     credentials = get_credentials()
 
     # Setup Reddit client
-    reddit = setup_reddit_client(credentials["reddit"])
+    reddit = setup_reddit_client(credentials["reddit_credentials"])
     if not reddit:
         print("Failed to set up Reddit client. Exiting...")
         return
