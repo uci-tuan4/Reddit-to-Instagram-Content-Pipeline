@@ -2,7 +2,13 @@ from flask import Flask, render_template, request, jsonify, session
 from flask_session import Session
 import praw
 import json
+import os
+import tempfile
+import requests
 from instagrapi import Client
+from PIL import Image
+from datetime import datetime
+
 
 # Import other necessary modules
 
@@ -48,9 +54,104 @@ def dashboard():
 
 @app.route('/post-to-instagram', methods=['POST'])
 def post_to_instagram():
-    post_data = request.json
-    # Implement your Instagram posting logic here
-    return jsonify({"status": "success"})
+    try:
+        post_data = request.json
+        if not post_data:
+            return jsonify({"status": "error", "message": "No post data received"}), 400
+
+        # Load Instagram credentials from config
+        try:
+            with open('config.json', 'r') as f:
+                config = json.load(f)
+                instagram_credentials = config['instagram']
+        except (FileNotFoundError, KeyError) as e:
+            return jsonify({
+                "status": "error",
+                "message": "Instagram credentials not found in config"
+            }), 400
+
+        # Create temp directory for media processing
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Download and process the image
+            image_url = post_data.get('url')
+            if not image_url:
+                return jsonify({
+                    "status": "error",
+                    "message": "No image URL provided"
+                }), 400
+
+            # Download image
+            try:
+                response = requests.get(image_url)
+                response.raise_for_status()
+
+                # Generate temporary file path
+                temp_image_path = os.path.join(temp_dir, f"temp_image_{datetime.now().timestamp()}.jpg")
+
+                # Save and process image
+                with open(temp_image_path, 'wb') as f:
+                    f.write(response.content)
+
+                # Process image with PIL
+                with Image.open(temp_image_path) as img:
+                    # Convert to RGB if necessary (Instagram requires RGB)
+                    if img.mode != 'RGB':
+                        img = img.convert('RGB')
+
+                    # Resize if necessary (Instagram max size is 1080x1350)
+                    max_size = (1080, 1350)
+                    if img.size[0] > max_size[0] or img.size[1] > max_size[1]:
+                        img.thumbnail(max_size, Image.Resampling.LANCZOS)
+
+                    # Save processed image
+                    img.save(temp_image_path, 'JPEG', quality=95)
+
+                # Initialize Instagram client
+                instagram = Client()
+                instagram.login(
+                    instagram_credentials['instagram_username'],
+                    instagram_credentials['instagram_password']
+                )
+
+                # Get caption from post data or use default
+                caption = post_data.get('caption', post_data.get('title', ''))
+
+                # Upload to Instagram
+                instagram.photo_upload(
+                    path=temp_image_path,
+                    caption=caption
+                )
+
+                return jsonify({
+                    "status": "success",
+                    "message": "Successfully posted to Instagram"
+                })
+
+            except requests.exceptions.RequestException as e:
+                return jsonify({
+                    "status": "error",
+                    "message": f"Failed to download image: {str(e)}"
+                }), 500
+
+            except Exception as e:
+                return jsonify({
+                    "status": "error",
+                    "message": f"Error processing image: {str(e)}"
+                }), 500
+
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": f"Unexpected error: {str(e)}"
+        }), 500
+
+    finally:
+        # Cleanup (temp directory is automatically cleaned up)
+        if 'instagram' in locals():
+            try:
+                instagram.logout()
+            except:
+                pass
 
 
 @app.route('/fetch-posts', methods=['POST'])

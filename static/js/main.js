@@ -1,3 +1,38 @@
+document.addEventListener('DOMContentLoaded', function() {
+    window.dashboardManager = new DashboardManager();
+});
+
+document.addEventListener('DOMContentLoaded', function () {
+    const setupForm = document.getElementById('setupForm');
+    if (setupForm) {
+        setupForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const formData = new FormData(setupForm);
+            const data = Object.fromEntries(formData.entries());
+
+            try {
+                const response = await fetch('/setup', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+                if (result.status === 'success') {
+                    window.location.href = '/dashboard';
+                } else {
+                    alert('Error: ' + result.message);
+                }
+            } catch (error) {
+                alert('Error: ' + error);
+            }
+        });
+    }
+});
+
 class DashboardManager {
     constructor() {
         this.currentPosts = [];
@@ -13,8 +48,8 @@ class DashboardManager {
         document.getElementById('fetch-posts').addEventListener('click', () => this.fetchPosts());
 
         // Navigation buttons
-        document.getElementById('prev-post').addEventListener('click', () => this.navigatePosts('prev'));
-        document.getElementById('next-post').addEventListener('click', () => this.navigatePosts('next'));
+        document.getElementById('prev-post').addEventListener('click', () => this.prevPost('prev'));
+        document.getElementById('next-post').addEventListener('click', () => this.nextPost('next'));
 
         // Approve/Reject buttons
         document.getElementById('approve-post').addEventListener('click', () => this.handlePostApproval());
@@ -22,6 +57,9 @@ class DashboardManager {
 
         // Add subreddit button
         document.getElementById('add-subreddit').addEventListener('click', () => this.addCustomSubreddit());
+
+        document.getElementById('caption-editor').addEventListener('input', () => this.updateCharCount());
+        document.getElementById('reset-caption').addEventListener('click', () => this.resetCaption());
     }
 
     showLoading(message = 'Loading...') {
@@ -32,9 +70,69 @@ class DashboardManager {
         this.isLoading = true;
     }
 
+    showPost(index) {
+        if (this.currentPosts.length === 0) {
+            document.getElementById('post-review-container').classList.add('d-none');
+            document.getElementById('no-posts-message').classList.remove('d-none');
+            return;
+        }
+
+        const post = this.currentPosts[index];
+        this.currentIndex = index;
+
+        document.getElementById('post-review-container').classList.remove('d-none');
+        document.getElementById('no-posts-message').classList.add('d-none');
+
+        document.getElementById('post-title').textContent = post.title;
+        document.getElementById('post-subreddit').textContent = `r/${post.subreddit}`;
+        document.getElementById('post-author').textContent = `u/${post.author}`;
+        document.getElementById('post-score').textContent = `${post.score} points`;
+        document.getElementById('post-media').src = post.url;
+
+        document.getElementById('caption-editor').value = this.generateDefaultCaption(post);
+        this.updateCharCount();
+
+        // Update navigation buttons
+        document.getElementById('prev-post').disabled = index === 0;
+        document.getElementById('next-post').disabled = index === currentPosts.length - 1;
+    }
+
+    addCustomSubreddit() {
+        const input = document.getElementById('custom-subreddit');
+        const subreddit = input.value.trim();
+
+        if (subreddit) {
+            const defaultSubreddits = document.getElementById('default-subreddits');
+            const div = document.createElement('div');
+            div.className = 'form-check';
+            div.innerHTML = `
+                <input class="form-check-input" type="checkbox" value="${subreddit}" id="${subreddit}" checked>
+                <label class="form-check-label" for="${subreddit}">r/${subreddit}</label>
+            `;
+            defaultSubreddits.appendChild(div);
+            input.value = '';
+        }
+    }
+
     hideLoading() {
         document.getElementById('loading-overlay').classList.add('d-none');
         this.isLoading = false;
+    }
+
+    nextPost() {
+        if (this.currentIndex < this.currentPosts.length - 1) {
+            this.showPost(this.currentIndex + 1);
+        } else {
+            this.showPost(this.currentIndex);
+        }
+    }
+
+    prevPost() {
+        if (this.currentIndex > 0) {
+            this.showPost(this.currentIndex - 1);
+        } else {
+            this.showPost(this.currentIndex);
+        }
     }
 
     showToast(message, type = 'success') {
@@ -91,6 +189,7 @@ class DashboardManager {
             this.currentPosts = data.posts;
             this.updatePostsCount();
             this.showToast(`Successfully fetched ${data.posts.length} posts`);
+            this.showPost(this.currentIndex);
 
         } catch (error) {
             this.showToast(error.message, 'danger');
@@ -100,30 +199,36 @@ class DashboardManager {
         }
     }
 
-    async handlePostApproval() {
-        try {
-            const post = this.currentPosts[this.currentIndex];
-            this.showLoading('Processing approval...');
+    addToQueue(post) {
+        const tbody = document.getElementById('queue-table-body');
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${post.title}</td>
+            <td>r/${post.subreddit}</td>
+            <td><span class="badge bg-warning">Pending</span></td>
+            <td>
+                <button class="btn btn-sm btn-primary post-now-btn">Post Now</button>
+                <button class="btn btn-sm btn-danger remove-btn">Remove</button>
+            </td>
+        `;
+        tbody.appendChild(row);
 
-            // Add to approved posts
-            this.approvedPosts.push(post);
-            this.updatePostsCount();
-            this.addToQueue(post);
-
-            this.showToast('Post approved and added to queue');
-            this.navigatePosts('next');
-
-        } catch (error) {
-            this.showToast('Error approving post', 'danger');
-            console.error('Error approving post:', error);
-        } finally {
-            this.hideLoading();
-        }
+        // Add handlers for the new buttons
+        row.querySelector('.post-now-btn').addEventListener('click', () => this.postToInstagram(post, row));
+        row.querySelector('.remove-btn').addEventListener('click', () => row.remove());
     }
 
     async postToInstagram(post, row) {
         try {
             this.showLoading('Posting to Instagram...');
+
+            // Get the edited caption
+            const caption = document.getElementById('caption-editor').value;
+
+            const postData = {
+                ...post,
+                caption: caption // Include the edited caption
+            };
 
             const response = await fetch('/post-to-instagram', {
                 method: 'POST',
@@ -138,7 +243,6 @@ class DashboardManager {
             }
 
             const result = await response.json();
-
             if (result.status === 'success') {
                 this.updateQueueItemStatus(row, 'success');
                 this.showToast('Successfully posted to Instagram');
@@ -153,6 +257,32 @@ class DashboardManager {
         } finally {
             this.hideLoading();
         }
+    }
+
+    async handlePostApproval() {
+        try {
+            const post = this.currentPosts[this.currentIndex];
+            this.showLoading('Processing approval...');
+
+            // Add to approved posts
+            this.approvedPosts.push(post);
+            this.updatePostsCount();
+            this.addToQueue(post);
+            this.nextPost();
+
+            this.showToast('Post approved and added to queue');
+            this.nextPost()
+
+        } catch (error) {
+            this.showToast('Error approving post', 'danger');
+            console.error('Error approving post:', error);
+        } finally {
+            this.hideLoading();
+        }
+    }
+
+    async handlePostRejection() {
+        this.nextPost();
     }
 
     updateQueueItemStatus(row, status) {
@@ -172,219 +302,24 @@ class DashboardManager {
         }
     }
 
+    generateDefaultCaption() {
+        return `${post.title} 🔥🔥🔥 #viral #fyp`;
+    }
+
     updatePostsCount() {
         document.getElementById('posts-fetched-count').textContent = this.currentPosts.length;
         document.getElementById('posts-approved-count').textContent = this.approvedPosts.length;
     }
-}
 
-
-document.addEventListener('DOMContentLoaded', function() {
-    window.dashboardManager = new DashboardManager();
-});
-
-document.addEventListener('DOMContentLoaded', function () {
-    const setupForm = document.getElementById('setupForm');
-    if (setupForm) {
-        setupForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-
-            const formData = new FormData(setupForm);
-            const data = Object.fromEntries(formData.entries());
-
-            try {
-                const response = await fetch('/setup', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(data)
-                });
-
-                const result = await response.json();
-                if (result.status === 'success') {
-                    window.location.href = '/dashboard';
-                } else {
-                    alert('Error: ' + result.message);
-                }
-            } catch (error) {
-                alert('Error: ' + error);
-            }
-        });
-    }
-});
-
-document.addEventListener('DOMContentLoaded', function() {
-    // Initialize variables
-    let currentPosts = [];
-    let currentIndex = 0;
-    let approvedPosts = [];
-
-    // Fetch posts button handler
-    document.getElementById('fetch-posts').addEventListener('click', async () => {
-        const selectedSubreddits = Array.from(document.querySelectorAll('input[type="checkbox"]:checked'))
-            .map(cb => cb.value);
-
-        try {
-            const response = await fetch('/fetch-posts', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({subreddits: selectedSubreddits})
-            });
-
-            const data = await response.json();
-            currentPosts = data.posts;
-            document.getElementById('posts-fetched-count').textContent = currentPosts.length;
-            showPost(0);
-        } catch (error) {
-            console.error('Error fetching posts:', error);
-            alert('Error fetching posts. Please try again.');
-        }
-    });
-
-    // Add custom subreddit handler
-    document.getElementById('add-subreddit').addEventListener('click', () => {
-        const input = document.getElementById('custom-subreddit');
-        const subreddit = input.value.trim();
-
-        if (subreddit) {
-            const defaultSubreddits = document.getElementById('default-subreddits');
-            const div = document.createElement('div');
-            div.className = 'form-check';
-            div.innerHTML = `
-                <input class="form-check-input" type="checkbox" value="${subreddit}" id="${subreddit}" checked>
-                <label class="form-check-label" for="${subreddit}">r/${subreddit}</label>
-            `;
-            defaultSubreddits.appendChild(div);
-            input.value = '';
-        }
-    });
-
-    // Navigation handlers
-    document.getElementById('prev-post').addEventListener('click', () => {
-        if (currentIndex > 0) {
-            showPost(currentIndex - 1);
-        }
-    });
-
-    document.getElementById('next-post').addEventListener('click', () => {
-        if (currentIndex < currentPosts.length - 1) {
-            showPost(currentIndex + 1);
-        }
-    });
-
-    // Approve/Reject handlers
-    document.getElementById('approve-post').addEventListener('click', () => {
-        const post = currentPosts[currentIndex];
-        approvedPosts.push(post);
-        document.getElementById('posts-approved-count').textContent = approvedPosts.length;
-        addToQueue(post);
-        nextPost();
-    });
-
-    document.getElementById('reject-post').addEventListener('click', () => {
-        nextPost();
-    });
-
-    function showPost(index) {
-        if (currentPosts.length === 0) {
-            document.getElementById('post-review-container').classList.add('d-none');
-            document.getElementById('no-posts-message').classList.remove('d-none');
-            return;
-        }
-
-        const post = currentPosts[index];
-        currentIndex = index;
-
-        document.getElementById('post-review-container').classList.remove('d-none');
-        document.getElementById('no-posts-message').classList.add('d-none');
-
-        document.getElementById('post-title').textContent = post.title;
-        document.getElementById('post-subreddit').textContent = `r/${post.subreddit}`;
-        document.getElementById('post-author').textContent = `u/${post.author}`;
-        document.getElementById('post-score').textContent = `${post.score} points`;
-        document.getElementById('post-media').src = post.url;
-
-        document.getElementById('caption-editor').value = generateDefaultCaption(post);
-        updateCharCount();
-
-        // Update navigation buttons
-        document.getElementById('prev-post').disabled = index === 0;
-        document.getElementById('next-post').disabled = index === currentPosts.length - 1;
-    }
-
-    function nextPost() {
-        if (currentIndex < currentPosts.length - 1) {
-            showPost(currentIndex + 1);
-        } else {
-            showPost(currentIndex);
-        }
-    }
-
-    function addToQueue(post) {
-        const tbody = document.getElementById('queue-table-body');
-        const row = document.createElement('tr');
-        row.innerHTML = `
-            <td>${post.title}</td>
-            <td>r/${post.subreddit}</td>
-            <td><span class="badge bg-warning">Pending</span></td>
-            <td>
-                <button class="btn btn-sm btn-primary post-now-btn">Post Now</button>
-                <button class="btn btn-sm btn-danger remove-btn">Remove</button>
-            </td>
-        `;
-        tbody.appendChild(row);
-
-        // Add handlers for the new buttons
-        row.querySelector('.post-now-btn').addEventListener('click', () => postToInstagram(post, row));
-        row.querySelector('.remove-btn').addEventListener('click', () => row.remove());
-    }
-
-    async function postToInstagram(post, row) {
-        try {
-            const response = await fetch('/post-to-instagram', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(post)
-            });
-
-            const result = await response.json();
-            if (result.status === 'success') {
-                row.querySelector('td:nth-child(3) span').className = 'badge bg-success';
-                row.querySelector('td:nth-child(3) span').textContent = 'Posted';
-                row.querySelector('.post-now-btn').disabled = true;
-
-                const postedCount = document.getElementById('posts-posted-count');
-                postedCount.textContent = parseInt(postedCount.textContent) + 1;
-            } else {
-                throw new Error(result.message);
-            }
-        } catch (error) {
-            console.error('Error posting to Instagram:', error);
-            alert('Error posting to Instagram. Please try again.');
-        }
-    }
-
-    function generateDefaultCaption(post) {
-        return `${post.title} 🔥🔥🔥
-
-#mma #ufc #viral #fyp #mixedmartialarts #mmafighter #mmanews #ufcnews #mmacommunity #ufcfighter #champion #mmafighters #wrestling #kickboxing #boxing #combatsports #mixedmartialarts #bjj #mmastriking #submission #mmatraining #ko #muaythai #jiujitsu`;
-    }
-
-    function updateCharCount() {
+    updateCharCount() {
         const caption = document.getElementById('caption-editor').value;
         document.getElementById('caption-char-count').textContent = caption.length;
     }
 
-    document.getElementById('caption-editor').addEventListener('input', updateCharCount);
+    resetCaption() {
+        const post = this.currentPosts[this.currentIndex];
+        document.getElementById('caption-editor').value = this.generateDefaultCaption(post);
+        this.updateCharCount();
+    }
 
-    document.getElementById('reset-caption').addEventListener('click', () => {
-        const post = currentPosts[currentIndex];
-        document.getElementById('caption-editor').value = generateDefaultCaption(post);
-        updateCharCount();
-    });
-})
+}
