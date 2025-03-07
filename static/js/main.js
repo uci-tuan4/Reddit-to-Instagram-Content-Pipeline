@@ -222,111 +222,111 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Fetch posts button handler
     document.getElementById('fetch-posts').addEventListener('click', async () => {
-    const selectedSubreddits = Array.from(document.querySelectorAll('input[type="checkbox"]:checked'))
-    .map(cb => cb.value);
+        const selectedSubreddits = Array.from(document.querySelectorAll('input[type="checkbox"]:checked'))
+            .map(cb => cb.value);
 
-    try {
-    const response = await fetch('/fetch-posts', {
-    method: 'POST',
-    headers: {
-    'Content-Type': 'application/json',
-},
-    body: JSON.stringify({subreddits: selectedSubreddits})
-});
+        try {
+            const response = await fetch('/fetch-posts', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({subreddits: selectedSubreddits})
+            });
 
-    const data = await response.json();
-    currentPosts = data.posts;
-    document.getElementById('posts-fetched-count').textContent = currentPosts.length;
-    showPost(0);
-} catch (error) {
-    console.error('Error fetching posts:', error);
-    alert('Error fetching posts. Please try again.');
-}
-});
+            const data = await response.json();
+            currentPosts = data.posts;
+            document.getElementById('posts-fetched-count').textContent = currentPosts.length;
+            showPost(0);
+        } catch (error) {
+            console.error('Error fetching posts:', error);
+            alert('Error fetching posts. Please try again.');
+        }
+    });
 
     // Add custom subreddit handler
     document.getElementById('add-subreddit').addEventListener('click', () => {
-    const input = document.getElementById('custom-subreddit');
-    const subreddit = input.value.trim();
+        const input = document.getElementById('custom-subreddit');
+        const subreddit = input.value.trim();
 
-    if (subreddit) {
-    const defaultSubreddits = document.getElementById('default-subreddits');
-    const div = document.createElement('div');
-    div.className = 'form-check';
-    div.innerHTML = `
+        if (subreddit) {
+            const defaultSubreddits = document.getElementById('default-subreddits');
+            const div = document.createElement('div');
+            div.className = 'form-check';
+            div.innerHTML = `
                 <input class="form-check-input" type="checkbox" value="${subreddit}" id="${subreddit}" checked>
                 <label class="form-check-label" for="${subreddit}">r/${subreddit}</label>
             `;
-    defaultSubreddits.appendChild(div);
-    input.value = '';
-}
-});
+            defaultSubreddits.appendChild(div);
+            input.value = '';
+        }
+    });
 
     // Navigation handlers
     document.getElementById('prev-post').addEventListener('click', () => {
-    if (currentIndex > 0) {
-    showPost(currentIndex - 1);
-}
-});
+        if (currentIndex > 0) {
+            showPost(currentIndex - 1);
+        }
+    });
 
     document.getElementById('next-post').addEventListener('click', () => {
-    if (currentIndex < currentPosts.length - 1) {
-    showPost(currentIndex + 1);
-}
-});
+        if (currentIndex < currentPosts.length - 1) {
+            showPost(currentIndex + 1);
+        }
+    });
 
     // Approve/Reject handlers
     document.getElementById('approve-post').addEventListener('click', () => {
-    const post = currentPosts[currentIndex];
-    approvedPosts.push(post);
-    document.getElementById('posts-approved-count').textContent = approvedPosts.length;
-    addToQueue(post);
-    nextPost();
-});
+        const post = currentPosts[currentIndex];
+        approvedPosts.push(post);
+        document.getElementById('posts-approved-count').textContent = approvedPosts.length;
+        addToQueue(post);
+        nextPost();
+    });
 
     document.getElementById('reject-post').addEventListener('click', () => {
-    nextPost();
-});
+        nextPost();
+    });
 
     function showPost(index) {
-    if (currentPosts.length === 0) {
-    document.getElementById('post-review-container').classList.add('d-none');
-    document.getElementById('no-posts-message').classList.remove('d-none');
-    return;
-}
+        if (currentPosts.length === 0) {
+            document.getElementById('post-review-container').classList.add('d-none');
+            document.getElementById('no-posts-message').classList.remove('d-none');
+            return;
+        }
 
-    const post = currentPosts[index];
-    currentIndex = index;
+        const post = currentPosts[index];
+        currentIndex = index;
 
-    document.getElementById('post-review-container').classList.remove('d-none');
-    document.getElementById('no-posts-message').classList.add('d-none');
+        document.getElementById('post-review-container').classList.remove('d-none');
+        document.getElementById('no-posts-message').classList.add('d-none');
 
-    document.getElementById('post-title').textContent = post.title;
-    document.getElementById('post-subreddit').textContent = `r/${post.subreddit}`;
-    document.getElementById('post-author').textContent = `u/${post.author}`;
-    document.getElementById('post-score').textContent = `${post.score} points`;
-    document.getElementById('post-media').src = post.url;
+        document.getElementById('post-title').textContent = post.title;
+        document.getElementById('post-subreddit').textContent = `r/${post.subreddit}`;
+        document.getElementById('post-author').textContent = `u/${post.author}`;
+        document.getElementById('post-score').textContent = `${post.score} points`;
+        document.getElementById('post-media').src = post.url;
 
-    // Update caption preview
-    document.getElementById('caption-text').textContent = generateCaption(post);
+        document.getElementById('caption-editor').value = generateDefaultCaption(post);
+        updateCharCount();
 
-    // Update navigation buttons
-    document.getElementById('prev-post').disabled = index === 0;
-    document.getElementById('next-post').disabled = index === currentPosts.length - 1;
-}
+        // Update navigation buttons
+        document.getElementById('prev-post').disabled = index === 0;
+        document.getElementById('next-post').disabled = index === currentPosts.length - 1;
+    }
 
     function nextPost() {
-    if (currentIndex < currentPosts.length - 1) {
-    showPost(currentIndex + 1);
-} else {
-    showPost(currentIndex);
-}
-}
+        if (currentIndex < currentPosts.length - 1) {
+            showPost(currentIndex + 1);
+        } else {
+            showPost(currentIndex);
+        }
+    }
 
     function addToQueue(post) {
-    const tbody = document.getElementById('queue-table-body');
-    const row = document.createElement('tr');
-    row.innerHTML = `
+        const tbody = document.getElementById('queue-table-body');
+        const row = document.createElement('tr');
+        row.innerHTML = `
             <td>${post.title}</td>
             <td>r/${post.subreddit}</td>
             <td><span class="badge bg-warning">Pending</span></td>
@@ -335,41 +335,56 @@ document.addEventListener('DOMContentLoaded', function() {
                 <button class="btn btn-sm btn-danger remove-btn">Remove</button>
             </td>
         `;
-    tbody.appendChild(row);
+        tbody.appendChild(row);
 
-    // Add handlers for the new buttons
-    row.querySelector('.post-now-btn').addEventListener('click', () => postToInstagram(post, row));
-    row.querySelector('.remove-btn').addEventListener('click', () => row.remove());
-}
+        // Add handlers for the new buttons
+        row.querySelector('.post-now-btn').addEventListener('click', () => postToInstagram(post, row));
+        row.querySelector('.remove-btn').addEventListener('click', () => row.remove());
+    }
 
     async function postToInstagram(post, row) {
-    try {
-    const response = await fetch('/post-to-instagram', {
-    method: 'POST',
-    headers: {
-    'Content-Type': 'application/json',
-},
-    body: JSON.stringify(post)
-});
+        try {
+            const response = await fetch('/post-to-instagram', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(post)
+            });
 
-    const result = await response.json();
-    if (result.status === 'success') {
-    row.querySelector('td:nth-child(3) span').className = 'badge bg-success';
-    row.querySelector('td:nth-child(3) span').textContent = 'Posted';
-    row.querySelector('.post-now-btn').disabled = true;
+            const result = await response.json();
+            if (result.status === 'success') {
+                row.querySelector('td:nth-child(3) span').className = 'badge bg-success';
+                row.querySelector('td:nth-child(3) span').textContent = 'Posted';
+                row.querySelector('.post-now-btn').disabled = true;
 
-    const postedCount = document.getElementById('posts-posted-count');
-    postedCount.textContent = parseInt(postedCount.textContent) + 1;
-} else {
-    throw new Error(result.message);
-}
-} catch (error) {
-    console.error('Error posting to Instagram:', error);
-    alert('Error posting to Instagram. Please try again.');
-}
-}
+                const postedCount = document.getElementById('posts-posted-count');
+                postedCount.textContent = parseInt(postedCount.textContent) + 1;
+            } else {
+                throw new Error(result.message);
+            }
+        } catch (error) {
+            console.error('Error posting to Instagram:', error);
+            alert('Error posting to Instagram. Please try again.');
+        }
+    }
 
-    function generateCaption(post) {
-    return `${post.title} 🔥🔥🔥\n\n#mma #ufc #viral #fyp #mixedmartialarts #mmafighter #mmanews #ufcnews #mmacommunity #ufcfighter #champion #mmafighters #wrestling #kickboxing #boxing #combatsports #mixedmartialarts #bjj #mmastriking #submission #mmatraining #ko #muaythai #jiujitsu`;
-}
-});
+    function generateDefaultCaption(post) {
+        return `${post.title} 🔥🔥🔥
+
+#mma #ufc #viral #fyp #mixedmartialarts #mmafighter #mmanews #ufcnews #mmacommunity #ufcfighter #champion #mmafighters #wrestling #kickboxing #boxing #combatsports #mixedmartialarts #bjj #mmastriking #submission #mmatraining #ko #muaythai #jiujitsu`;
+    }
+
+    function updateCharCount() {
+        const caption = document.getElementById('caption-editor').value;
+        document.getElementById('caption-char-count').textContent = caption.length;
+    }
+
+    document.getElementById('caption-editor').addEventListener('input', updateCharCount);
+
+    document.getElementById('reset-caption').addEventListener('click', () => {
+        const post = currentPosts[currentIndex];
+        document.getElementById('caption-editor').value = generateDefaultCaption(post);
+        updateCharCount();
+    });
+})
