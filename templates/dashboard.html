@@ -116,6 +116,77 @@
                                             </button>
                                         </div>
                                     </div>
+                                    
+                                    <!-- AI Optimization Tools -->
+                                    <div class="ai-tools mt-3">
+                                        <div class="card">
+                                            <div class="card-header bg-primary text-white">
+                                                <div class="d-flex justify-content-between align-items-center">
+                                                    <h6 class="mb-0">AI Content Optimization</h6>
+                                                    <div class="form-check form-switch">
+                                                        <input class="form-check-input" type="checkbox" id="ai-enabled" checked>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="card-body">
+                                                <div class="row mb-3">
+                                                    <div class="col-md-6">
+                                                        <label class="form-label">Optimization Level</label>
+                                                        <select class="form-select" id="optimization-level">
+                                                            <option value="light">Light - Grammar & Clarity</option>
+                                                            <option value="moderate" selected>Moderate - Engagement Focused</option>
+                                                            <option value="creative">Creative - Viral Optimized</option>
+                                                        </select>
+                                                    </div>
+                                                    <div class="col-md-6">
+                                                        <label class="form-label">Options</label>
+                                                        <div class="form-check">
+                                                            <input class="form-check-input" type="checkbox" id="generate-hashtags" checked>
+                                                            <label class="form-check-label" for="generate-hashtags">Generate Hashtags</label>
+                                                        </div>
+                                                        <div class="form-check">
+                                                            <input class="form-check-input" type="checkbox" id="analyze-content">
+                                                            <label class="form-check-label" for="analyze-content">Analyze Content</label>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="d-grid">
+                                                    <button class="btn btn-primary" id="optimize-button">
+                                                        <i class="bi bi-magic"></i> Optimize Content
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Content Analysis Section (Hidden by Default) -->
+                                        <div id="content-analysis" class="card mt-3 d-none">
+                                            <div class="card-header bg-info text-white">
+                                                <h6 class="mb-0">Content Analysis</h6>
+                                            </div>
+                                            <div class="card-body">
+                                                <div class="row">
+                                                    <div class="col-md-4">
+                                                        <div class="analysis-item">
+                                                            <h6>Sentiment</h6>
+                                                            <span id="sentiment-value" class="badge bg-primary">Neutral</span>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-4">
+                                                        <div class="analysis-item">
+                                                            <h6>Engagement Prediction</h6>
+                                                            <span id="engagement-value" class="badge bg-success">Medium</span>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-4">
+                                                        <div class="analysis-item">
+                                                            <h6>Key Topics</h6>
+                                                            <div id="topics-container"></div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
