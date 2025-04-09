@@ -60,6 +60,16 @@ class DashboardManager {
 
         document.getElementById('caption-editor').addEventListener('input', () => this.updateCharCount());
         document.getElementById('reset-caption').addEventListener('click', () => this.resetCaption());
+        
+        // AI Content Optimization
+        document.getElementById('optimize-button').addEventListener('click', () => this.optimizeContent());
+        document.getElementById('analyze-content').addEventListener('change', (e) => {
+            if (e.target.checked) {
+                document.getElementById('content-analysis').classList.remove('d-none');
+            } else {
+                document.getElementById('content-analysis').classList.add('d-none');
+            }
+        });
     }
 
     showLoading(message = 'Loading...') {
@@ -161,7 +171,7 @@ class DashboardManager {
         try {
             this.showLoading('Fetching posts...');
 
-            const selectedSubreddits = Array.from(document.querySelectorAll('input[type="checkbox"]:checked'))
+            const selectedSubreddits = Array.from(document.querySelectorAll('#default-subreddits input[type="checkbox"]:checked'))
                 .map(cb => cb.value);
 
             if (selectedSubreddits.length === 0) {
@@ -321,4 +331,104 @@ class DashboardManager {
         this.updateCharCount();
     }
 
+    async optimizeContent() {
+        try {
+            if (!this.currentPosts.length || this.isLoading) return;
+            
+            const post = this.currentPosts[this.currentIndex];
+            const caption = document.getElementById('caption-editor').value;
+            
+            this.showLoading('Optimizing content with AI...');
+            
+            const optimizationLevel = document.getElementById('optimization-level').value;
+            const generateHashtags = document.getElementById('generate-hashtags').checked;
+            const analyzeContent = document.getElementById('analyze-content').checked;
+            
+            const response = await fetch('/optimize-content', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    title: post.title,
+                    caption: caption,
+                    subreddit: post.subreddit,
+                    optimization_level: optimizationLevel,
+                    generate_hashtags: generateHashtags,
+                    analyze_content: analyzeContent
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const result = await response.json();
+            if (result.status === 'error') {
+                throw new Error(result.message);
+            }
+            
+            // Update caption with optimized version
+            document.getElementById('caption-editor').value = result.optimized_caption;
+            this.updateCharCount();
+            
+            // If analysis is available, update the analysis section
+            if (result.analysis) {
+                this.updateContentAnalysis(result.analysis);
+            }
+            
+            this.showToast('Content successfully optimized by AI');
+            
+        } catch (error) {
+            this.showToast(error.message, 'danger');
+            console.error('Error optimizing content:', error);
+        } finally {
+            this.hideLoading();
+        }
+    }
+    
+    updateContentAnalysis(analysis) {
+        const contentAnalysis = document.getElementById('content-analysis');
+        contentAnalysis.classList.remove('d-none');
+        
+        // Update sentiment
+        const sentimentValue = document.getElementById('sentiment-value');
+        sentimentValue.textContent = analysis.sentiment.charAt(0).toUpperCase() + analysis.sentiment.slice(1);
+        
+        // Set appropriate badge color
+        sentimentValue.className = 'badge';
+        if (analysis.sentiment === 'positive') {
+            sentimentValue.classList.add('bg-success');
+        } else if (analysis.sentiment === 'negative') {
+            sentimentValue.classList.add('bg-danger');
+        } else {
+            sentimentValue.classList.add('bg-primary');
+        }
+        
+        // Update engagement prediction
+        const engagementValue = document.getElementById('engagement-value');
+        engagementValue.textContent = analysis.engagement_prediction.charAt(0).toUpperCase() + analysis.engagement_prediction.slice(1);
+        
+        // Set appropriate badge color
+        engagementValue.className = 'badge';
+        if (analysis.engagement_prediction === 'high') {
+            engagementValue.classList.add('bg-success');
+        } else if (analysis.engagement_prediction === 'low') {
+            engagementValue.classList.add('bg-danger');
+        } else {
+            engagementValue.classList.add('bg-warning');
+            engagementValue.classList.add('text-dark');
+        }
+        
+        // Update topics
+        const topicsContainer = document.getElementById('topics-container');
+        topicsContainer.innerHTML = '';
+        
+        analysis.topics.forEach(topic => {
+            const badge = document.createElement('span');
+            badge.className = 'badge bg-secondary me-1 mb-1';
+            badge.textContent = topic;
+            topicsContainer.appendChild(badge);
+        });
+    }
 }

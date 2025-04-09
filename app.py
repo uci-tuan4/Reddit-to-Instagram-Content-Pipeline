@@ -8,9 +8,8 @@ import requests
 from instagrapi import Client
 from PIL import Image
 from datetime import datetime
+import ai_content_optimizer
 
-
-# Import other necessary modules
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key'  # Change this
@@ -39,6 +38,13 @@ def setup():
                 "instagram_password": data['instagram_password']
             }
         }
+        
+        # Add OpenAI API key if provided
+        if 'openai_api_key' in data and data['openai_api_key']:
+            if 'openai' not in config:
+                config['openai'] = {}
+            config['openai']['api_key'] = data['openai_api_key']
+        
         with open('config.json', 'w') as f:
             json.dump(config, f)
 
@@ -213,6 +219,66 @@ def fetch_posts():
     except Exception as e:
         return jsonify({
             'error': f'Unexpected error: {str(e)}'
+        }), 500
+
+
+@app.route('/optimize-content', methods=['POST'])
+def optimize_content():
+    try:
+        data = request.json
+        if not data:
+            return jsonify({"status": "error", "message": "No data received"}), 400
+            
+        # Initialize AI client if not already initialized
+        if not ai_content_optimizer.client:
+            initialized = ai_content_optimizer.initialize_openai()
+            if not initialized:
+                return jsonify({
+                    "status": "error", 
+                    "message": "OpenAI API key not found. Please add it in the setup page."
+                }), 400
+        
+        original_caption = data.get('caption', '')
+        post_title = data.get('title', '')
+        subreddit = data.get('subreddit', '')
+        optimization_level = data.get('optimization_level', 'moderate')
+        
+        # Optimize caption
+        optimized_caption = ai_content_optimizer.optimize_caption(
+            original_caption, 
+            subreddit, 
+            post_title, 
+            optimization_level
+        )
+        
+        # Generate hashtags separately if requested
+        hashtags = None
+        if data.get('generate_hashtags', False):
+            hashtags = ai_content_optimizer.generate_hashtags(
+                subreddit,
+                post_title,
+                optimized_caption[:100]  # Just use the beginning of the caption
+            )
+            
+        # Get content analysis if requested
+        analysis = None
+        if data.get('analyze_content', False):
+            analysis = ai_content_optimizer.analyze_content_sentiment(
+                post_title,
+                optimized_caption
+            )
+        
+        return jsonify({
+            "status": "success",
+            "optimized_caption": optimized_caption,
+            "hashtags": hashtags,
+            "analysis": analysis
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": f"Error optimizing content: {str(e)}"
         }), 500
 
 
