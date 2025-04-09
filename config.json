@@ -1,11 +1,1 @@
-{
-    "reddit_credentials": {
-        "reddit_client_id": "",
-        "reddit_client_secret": "",
-        "reddit_username": ""
-    },
-    "instagram": {
-        "instagram_username": "",
-        "instagram_password": ""
-    }
-}
+{"reddit_credentials": {"reddit_client_id": "Gn5SY8IeeNUzkd97tG08XQ", "reddit_client_secret": "t5OM3njuLso-D5wzXPAur4fk_uM2Tg", "reddit_username": "MMA_News_Aggregator v1.0 by kekman26"}, "instagram": {"instagram_username": "strike_zone_news", "instagram_password": "Angels87!"}}

@@ -94,7 +94,7 @@ class DashboardManager {
 
         // Update navigation buttons
         document.getElementById('prev-post').disabled = index === 0;
-        document.getElementById('next-post').disabled = index === currentPosts.length - 1;
+        document.getElementById('next-post').disabled = index === this.currentPosts.length - 1;
     }
 
     addCustomSubreddit() {
@@ -235,7 +235,7 @@ class DashboardManager {
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify(post)
+                body: JSON.stringify(postData)
             });
 
             if (!response.ok) {
@@ -268,10 +268,9 @@ class DashboardManager {
             this.approvedPosts.push(post);
             this.updatePostsCount();
             this.addToQueue(post);
-            this.nextPost();
-
+            
             this.showToast('Post approved and added to queue');
-            this.nextPost()
+            this.nextPost();
 
         } catch (error) {
             this.showToast('Error approving post', 'danger');
@@ -302,7 +301,7 @@ class DashboardManager {
         }
     }
 
-    generateDefaultCaption() {
+    generateDefaultCaption(post) {
         return `${post.title} 🔥🔥🔥 #viral #fyp`;
     }
 
