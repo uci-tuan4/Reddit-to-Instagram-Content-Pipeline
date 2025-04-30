@@ -117,7 +117,7 @@ def analyze_content_sentiment(post_title, caption):
     
     try:
         completion = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "You are an expert social media content analyzer. Provide analysis in JSON format only."},
                 {"role": "user", "content": f"Analyze this content for Instagram - Title: '{post_title}', Caption: '{caption}'. Return a JSON object with these keys: sentiment (positive, negative, neutral), topics (array of relevant topics), and engagement_prediction (high, medium, low)."}
