@@ -1,8 +1,10 @@
-document.addEventListener('DOMContentLoaded', function() {
-    window.dashboardManager = new DashboardManager();
-});
-
 document.addEventListener('DOMContentLoaded', function () {
+    const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
+
+    if (pathname === '/dashboard') {
+        window.dashboardManager = new DashboardManager();
+    }
+
     const setupForm = document.getElementById('setupForm');
     if (setupForm) {
         setupForm.addEventListener('submit', async (e) => {
