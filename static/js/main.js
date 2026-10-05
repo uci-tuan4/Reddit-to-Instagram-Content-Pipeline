@@ -6,6 +6,18 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     const setupForm = document.getElementById('setupForm');
+    const forgetButton = document.getElementById('forget-credentials');
+    if (forgetButton) forgetButton.addEventListener('click', async () => {
+        try {
+            const response = await fetch('/forget-credentials', {
+                method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
+            });
+            if (!response.ok) throw new Error('Could not clear credentials');
+            window.location.reload();
+        } catch (error) {
+            alert(error.message);
+        }
+    });
     if (setupForm) {
         fetch('/configuration-status').then(response => response.json()).then(status => {
             document.getElementById('configuration-status').textContent =

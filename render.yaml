@@ -9,20 +9,10 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.13
-      - key: APP_USERNAME
-        value: admin
-      - key: APP_PASSWORD
-        sync: false
-      - key: REDDIT_CLIENT_ID
-        sync: false
-      - key: REDDIT_CLIENT_SECRET
-        sync: false
-      - key: REDDIT_USER_AGENT
-        sync: false
-      - key: INSTAGRAM_USERNAME
-        sync: false
-      - key: INSTAGRAM_PASSWORD
-        sync: false
+      - key: PUBLIC_SITE
+        value: "true"
+      - key: SECRET_KEY
+        generateValue: true
       - key: OPENAI_MODEL
         value: gpt-6-luna
       - key: OPENAI_REASONING_EFFORT

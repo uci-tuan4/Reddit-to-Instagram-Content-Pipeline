@@ -30,9 +30,12 @@ class PipelineTests(unittest.TestCase):
         self.addCleanup(environment.stop)
         self.old_password = web.app.config['APP_PASSWORD']
         self.old_username = web.app.config['APP_USERNAME']
-        web.app.config.update(APP_PASSWORD='', APP_USERNAME='admin', TESTING=True)
+        self.old_public = web.app.config['PUBLIC_SITE']
+        web.app.config.update(APP_PASSWORD='', APP_USERNAME='admin', PUBLIC_SITE=False, TESTING=True)
         self.addCleanup(lambda: web.app.config.update(APP_PASSWORD=self.old_password,
-                                                      APP_USERNAME=self.old_username))
+                                                      APP_USERNAME=self.old_username, PUBLIC_SITE=self.old_public))
+        web.visitors.clear()
+        self.addCleanup(web.visitors.clear)
         self.client = web.app.test_client()
 
     def credentials(self):
@@ -65,6 +68,52 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(self.client.get('/', headers=auth).status_code, 200)
         self.assertEqual(self.client.post('/setup', json={}, headers={**auth, 'Origin': 'https://attacker.example'}).status_code, 403)
         self.assertEqual(self.client.post('/setup', data='x', headers=auth).status_code, 415)
+
+    def test_public_pages_ignore_operator_password_and_isolate_credentials(self):
+        web.app.config.update(PUBLIC_SITE=True, APP_PASSWORD='private-password')
+        other = web.app.test_client()
+        with patch.dict(os.environ, {'OPENAI_API_KEY': 'owner-key', 'INSTAGRAM_PASSWORD': 'owner-password'}):
+            for path in ('/', '/dashboard'):
+                self.assertEqual(other.get(path).status_code, 200)
+            self.credentials()
+            self.assertTrue(self.client.get('/configuration-status').json['openai'])
+            self.assertFalse(any(other.get('/configuration-status').json.values()))
+            with patch.object(web.ai_content_optimizer, 'optimize_content', return_value={'optimized_caption': 'caption'}) as optimize:
+                self.assertEqual(other.post('/optimize-content', json={'caption': 'draft'}).status_code, 400)
+                optimize.assert_not_called()
+                self.assertEqual(self.client.post('/optimize-content', json={'caption': 'draft'}).status_code, 200)
+                self.assertEqual(optimize.call_args.args[1], 'test-key')
+            self.assertEqual(other.post('/post-to-instagram', json={'url': 'https://i.redd.it/a.jpg'}).status_code, 400)
+        with self.client.session_transaction() as cookie:
+            self.assertEqual(set(cookie.keys()), {'visitor_id'})
+        self.client.post('/forget-credentials', json={})
+        self.assertFalse(any(self.client.get('/configuration-status').json.values()))
+
+    def test_public_session_expiration(self):
+        web.app.config['PUBLIC_SITE'] = True
+        with patch.object(web.time, 'monotonic', return_value=100):
+            self.credentials()
+        with patch.object(web.time, 'monotonic', return_value=100 + web.VISITOR_TTL + 1):
+            self.assertFalse(any(self.client.get('/configuration-status').json.values()))
+        self.assertEqual(len(web.visitors), 0)
+
+    def test_public_instagram_settings_are_scoped_to_visitor(self):
+        web.app.config['PUBLIC_SITE'] = True
+        self.credentials()
+        other = web.app.test_client()
+        other.post('/setup', json={'instagram_username': 'test', 'instagram_password': 'different-password'})
+        instagram = MagicMock()
+        instagram.photo_upload.return_value = SimpleNamespace(pk=42)
+        instagram.get_settings.return_value = {'test-session': True}
+        with patch.object(web, 'prepare_image', return_value=Path(self.temp.name) / 'photo.jpg'), \
+                patch.object(web, 'Client', return_value=instagram):
+            body = {'url': 'https://i.redd.it/photo.jpg', 'caption': 'draft'}
+            self.assertEqual(self.client.post('/post-to-instagram', json=body).status_code, 200)
+            self.assertEqual(other.post('/post-to-instagram', json=body).status_code, 200)
+            instagram.set_settings.assert_not_called()
+            self.assertEqual(self.client.post('/post-to-instagram', json=body).status_code, 200)
+            instagram.set_settings.assert_called_once_with({'test-session': True})
+            instagram.dump_settings.assert_not_called()
 
     def test_invalid_input_and_missing_credentials(self):
         for body in ([], {'subreddits': []}, {'subreddits': ['<script>']}):

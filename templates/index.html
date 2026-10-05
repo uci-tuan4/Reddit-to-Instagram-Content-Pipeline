@@ -9,7 +9,13 @@
             </div>
             <div class="card-body">
                 <form id="setupForm">
-                    <p id="configuration-status" class="text-muted">Blank fields keep existing credentials. Environment settings take precedence.</p>
+                    <p id="configuration-status" class="text-muted">Blank fields keep existing credentials.</p>
+                    {% if public_site %}
+                    <p class="form-text">Use your own accounts and API key. Credentials stay in your browser's server session, expire after two hours of inactivity, and are cleared when the server restarts.</p>
+                    <button type="button" id="forget-credentials" class="btn btn-outline-secondary mb-3">Clear my credentials</button>
+                    {% else %}
+                    <p class="form-text">Environment settings take precedence in private mode.</p>
+                    {% endif %}
                     <p><a href="/dashboard">Open dashboard</a></p>
                     <h4>Reddit Credentials</h4>
                     <div class="mb-3">
