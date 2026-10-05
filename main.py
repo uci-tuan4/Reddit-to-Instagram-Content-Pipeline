@@ -1,24 +1,11 @@
 import praw
-import pandas as pd
-import requests
 import os
 from datetime import datetime
 from instagrapi import Client
 import time
-import json
-
-CONFIG_FILE = "config.json"
-
-def read_config():
-    with open(CONFIG_FILE, "r") as file:
-        return json.load(file)
-
-# Update configuration
-def update_config(updates):
-    config = read_config()
-    config.update(updates)  # Merge updates into the current config
-    with open(CONFIG_FILE, "w") as file:
-        json.dump(config, file, indent=4)
+from getpass import getpass
+from configuration import read_config, update_config
+from media import is_reddit_image, prepare_image
 
 
 
@@ -64,7 +51,7 @@ def get_credentials():
         instagram_config["instagram_username"] = input("Enter Instagram username: ").strip()
     
     if instagram_config["instagram_password"] == "":
-        instagram_config["instagram_password"] = input("Enter Instagram password: ").strip()
+        instagram_config["instagram_password"] = getpass("Enter Instagram password: ")
 
     update_config(config)
     return config
@@ -148,7 +135,7 @@ def setup_reddit_client(reddit_credentials):
             user_agent=username
         )
         # Test the connection
-        reddit.user.me()
+        next(iter(reddit.subreddit('all').hot(limit=1)), None)
         print("\nSuccessfully connected to Reddit API!")
         return reddit
     except Exception as e:
@@ -161,12 +148,7 @@ def download_media(url, filename):
     Downloads media from a URL and saves it with the given filename.
     Returns the path to the saved file.
     """
-    response = requests.get(url)
-    if response.status_code == 200:
-        with open(filename, 'wb') as f:
-            f.write(response.content)
-        return filename
-    return None
+    return prepare_image(url, filename)
 
 
 def get_user_approval(post_data):
@@ -195,9 +177,9 @@ def scrape_subreddit_posts(reddit, subreddit_name, limit=10, post_type="all"):
 
     for post in subreddit.hot(limit=limit):
         # Skip posts that don't have media if we're looking for specific types
-        if post_type == "image" and not post.url.endswith(('.jpg', '.jpeg', '.png')):
+        if post_type == "image" and not is_reddit_image(post.url):
             continue
-        if post_type == "video" and not hasattr(post, 'is_video'):
+        if post_type == "video" and not getattr(post, 'is_video', False):
             continue
 
         post_data = {
@@ -205,6 +187,7 @@ def scrape_subreddit_posts(reddit, subreddit_name, limit=10, post_type="all"):
             'url': post.url,
             'score': post.score,
             'id': post.id,
+            'subreddit': subreddit_name,
             'author': str(post.author),
             'created_utc': datetime.fromtimestamp(post.created_utc),
             'permalink': f"https://reddit.com{post.permalink}",
@@ -212,7 +195,7 @@ def scrape_subreddit_posts(reddit, subreddit_name, limit=10, post_type="all"):
         }
         posts_data.append(post_data)
 
-    return pd.DataFrame(posts_data)
+    return posts_data
 
 
 def prepare_instagram_post(post_data):
@@ -277,7 +260,7 @@ def main():
     for subreddit in subreddits:
         print(f"\nScraping posts from r/{subreddit}...")
         subreddit_posts = scrape_subreddit_posts(reddit, subreddit, limit=20, post_type="image")
-        posts_queue.extend(subreddit_posts.to_dict('records'))
+        posts_queue.extend(subreddit_posts)
 
     if not posts_queue:
         print("\nNo posts found in the selected subreddits. Exiting...")
@@ -294,7 +277,11 @@ def main():
     posts_processed = 0
     for post in posts_queue:
         # Ask for approval before processing
-        media_path, caption = prepare_instagram_post(post)
+        try:
+            media_path, caption = prepare_instagram_post(post)
+        except Exception as exc:
+            print(f"Could not prepare image ({type(exc).__name__}). Skipping.")
+            continue
 
         if media_path:
             success = post_to_instagram(instagram, media_path, caption)

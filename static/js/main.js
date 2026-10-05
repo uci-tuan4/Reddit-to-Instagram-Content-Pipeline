@@ -7,6 +7,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const setupForm = document.getElementById('setupForm');
     if (setupForm) {
+        fetch('/configuration-status').then(response => response.json()).then(status => {
+            document.getElementById('configuration-status').textContent =
+                `Configured: Reddit ${status.reddit_credentials ? 'yes' : 'no'}, Instagram ${status.instagram ? 'yes' : 'no'}, AI ${status.openai ? 'yes' : 'no'}. Blank fields keep saved values.`;
+        }).catch(() => {});
         setupForm.addEventListener('submit', async (e) => {
             e.preventDefault();
 
@@ -60,11 +64,17 @@ class DashboardManager {
         // Add subreddit button
         document.getElementById('add-subreddit').addEventListener('click', () => this.addCustomSubreddit());
 
-        document.getElementById('caption-editor').addEventListener('input', () => this.updateCharCount());
+        document.getElementById('caption-editor').addEventListener('input', () => {
+            this.saveCaption();
+            this.updateCharCount();
+        });
         document.getElementById('reset-caption').addEventListener('click', () => this.resetCaption());
         
         // AI Content Optimization
         document.getElementById('optimize-button').addEventListener('click', () => this.optimizeContent());
+        document.getElementById('ai-enabled').addEventListener('change', (e) => {
+            document.getElementById('optimize-button').disabled = !e.target.checked;
+        });
         document.getElementById('analyze-content').addEventListener('change', (e) => {
             if (e.target.checked) {
                 document.getElementById('content-analysis').classList.remove('d-none');
@@ -89,6 +99,7 @@ class DashboardManager {
             return;
         }
 
+        index = Math.max(0, Math.min(index, this.currentPosts.length - 1));
         const post = this.currentPosts[index];
         this.currentIndex = index;
 
@@ -101,8 +112,9 @@ class DashboardManager {
         document.getElementById('post-score').textContent = `${post.score} points`;
         document.getElementById('post-media').src = post.url;
 
-        document.getElementById('caption-editor').value = this.generateDefaultCaption(post);
+        document.getElementById('caption-editor').value = post.caption ?? this.generateDefaultCaption(post);
         this.updateCharCount();
+        document.getElementById('content-analysis').classList.add('d-none');
 
         // Update navigation buttons
         document.getElementById('prev-post').disabled = index === 0;
@@ -111,7 +123,12 @@ class DashboardManager {
 
     addCustomSubreddit() {
         const input = document.getElementById('custom-subreddit');
-        const subreddit = input.value.trim();
+        const subreddit = input.value.trim().replace(/^r\//i, '');
+        if (!/^[A-Za-z0-9_]{1,21}$/.test(subreddit)) {
+            this.showToast('Enter a valid subreddit name', 'danger');
+            return;
+        }
+        if (Array.from(document.querySelectorAll('#default-subreddits input')).some(cb => cb.value.toLowerCase() === subreddit.toLowerCase())) return;
 
         if (subreddit) {
             const defaultSubreddits = document.getElementById('default-subreddits');
@@ -132,6 +149,7 @@ class DashboardManager {
     }
 
     nextPost() {
+        if (this.isLoading) return;
         if (this.currentIndex < this.currentPosts.length - 1) {
             this.showPost(this.currentIndex + 1);
         } else {
@@ -140,6 +158,7 @@ class DashboardManager {
     }
 
     prevPost() {
+        if (this.isLoading) return;
         if (this.currentIndex > 0) {
             this.showPost(this.currentIndex - 1);
         } else {
@@ -158,9 +177,10 @@ class DashboardManager {
                 <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
             </div>
             <div class="toast-body">
-                ${message}
+
             </div>
         `;
+        toast.querySelector('.toast-body').textContent = message;
         toastContainer.appendChild(toast);
 
         // Remove toast after 5 seconds
@@ -170,6 +190,7 @@ class DashboardManager {
     }
 
     async fetchPosts() {
+        if (this.isLoading) return;
         try {
             this.showLoading('Fetching posts...');
 
@@ -188,20 +209,17 @@ class DashboardManager {
                 body: JSON.stringify({subreddits: selectedSubreddits})
             });
 
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
             const data = await response.json();
-
-            if (data.error) {
-                throw new Error(data.error);
+            if (!response.ok || data.error) {
+                throw new Error(data.message || data.error || `HTTP ${response.status}`);
             }
 
             this.currentPosts = data.posts;
+            this.currentIndex = 0;
             this.updatePostsCount();
             this.showToast(`Successfully fetched ${data.posts.length} posts`);
             this.showPost(this.currentIndex);
+            (data.warnings || []).forEach(message => this.showToast(message, 'warning'));
 
         } catch (error) {
             this.showToast(error.message, 'danger');
@@ -215,27 +233,35 @@ class DashboardManager {
         const tbody = document.getElementById('queue-table-body');
         const row = document.createElement('tr');
         row.innerHTML = `
-            <td>${post.title}</td>
-            <td>r/${post.subreddit}</td>
+            <td></td>
+            <td></td>
             <td><span class="badge bg-warning">Pending</span></td>
             <td>
                 <button class="btn btn-sm btn-primary post-now-btn">Post Now</button>
                 <button class="btn btn-sm btn-danger remove-btn">Remove</button>
             </td>
         `;
+        row.children[0].textContent = post.title;
+        row.children[1].textContent = `r/${post.subreddit}`;
         tbody.appendChild(row);
 
         // Add handlers for the new buttons
         row.querySelector('.post-now-btn').addEventListener('click', () => this.postToInstagram(post, row));
-        row.querySelector('.remove-btn').addEventListener('click', () => row.remove());
+        row.querySelector('.remove-btn').addEventListener('click', () => {
+            this.approvedPosts = this.approvedPosts.filter(item => item !== post);
+            row.remove();
+            this.updatePostsCount();
+        });
     }
 
     async postToInstagram(post, row) {
+        if (this.isLoading || row.querySelector('.post-now-btn').disabled) return;
+        if (!window.confirm('Publish this queued post to Instagram now?')) return;
         try {
             this.showLoading('Posting to Instagram...');
 
             // Get the edited caption
-            const caption = document.getElementById('caption-editor').value;
+            const caption = post.caption;
 
             const postData = {
                 ...post,
@@ -250,12 +276,8 @@ class DashboardManager {
                 body: JSON.stringify(postData)
             });
 
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
             const result = await response.json();
-            if (result.status === 'success') {
+            if (response.ok && result.status === 'success') {
                 this.updateQueueItemStatus(row, 'success');
                 this.showToast('Successfully posted to Instagram');
             } else {
@@ -264,7 +286,7 @@ class DashboardManager {
 
         } catch (error) {
             this.updateQueueItemStatus(row, 'error');
-            this.showToast('Failed to post to Instagram', 'danger');
+            this.showToast(error.message || 'Failed to post to Instagram', 'danger');
             console.error('Error posting to Instagram:', error);
         } finally {
             this.hideLoading();
@@ -272,8 +294,14 @@ class DashboardManager {
     }
 
     async handlePostApproval() {
+        if (this.isLoading || !this.currentPosts.length) return;
         try {
-            const post = this.currentPosts[this.currentIndex];
+            this.saveCaption();
+            const post = {...this.currentPosts[this.currentIndex]};
+            if (this.approvedPosts.some(item => item.id === post.id)) {
+                this.showToast('This post is already in the queue', 'warning');
+                return;
+            }
             this.showLoading('Processing approval...');
 
             // Add to approved posts
@@ -282,7 +310,7 @@ class DashboardManager {
             this.addToQueue(post);
             
             this.showToast('Post approved and added to queue');
-            this.nextPost();
+            this.showPost(Math.min(this.currentIndex + 1, this.currentPosts.length - 1));
 
         } catch (error) {
             this.showToast('Error approving post', 'danger');
@@ -293,6 +321,7 @@ class DashboardManager {
     }
 
     async handlePostRejection() {
+        if (this.isLoading) return;
         this.nextPost();
     }
 
@@ -327,9 +356,16 @@ class DashboardManager {
         document.getElementById('caption-char-count').textContent = caption.length;
     }
 
+    saveCaption() {
+        const post = this.currentPosts[this.currentIndex];
+        if (post) post.caption = document.getElementById('caption-editor').value;
+    }
+
     resetCaption() {
         const post = this.currentPosts[this.currentIndex];
+        if (!post || this.isLoading) return;
         document.getElementById('caption-editor').value = this.generateDefaultCaption(post);
+        this.saveCaption();
         this.updateCharCount();
     }
 
@@ -361,17 +397,14 @@ class DashboardManager {
                 })
             });
             
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            
             const result = await response.json();
-            if (result.status === 'error') {
+            if (!response.ok || result.status === 'error') {
                 throw new Error(result.message);
             }
             
             // Update caption with optimized version
             document.getElementById('caption-editor').value = result.optimized_caption;
+            this.saveCaption();
             this.updateCharCount();
             
             // If analysis is available, update the analysis section

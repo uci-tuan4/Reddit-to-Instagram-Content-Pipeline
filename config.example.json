@@ -1,0 +1,9 @@
+{
+  "reddit_credentials": {
+    "reddit_client_id": "",
+    "reddit_client_secret": "",
+    "reddit_username": "RedditToInstagram/1.0 by YOUR_REDDIT_USERNAME"
+  },
+  "instagram": {"instagram_username": "", "instagram_password": ""},
+  "openai": {"api_key": ""}
+}

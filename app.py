@@ -1,286 +1,209 @@
-from flask import Flask, render_template, request, jsonify, session
-from flask_session import Session
-import praw
-import json
+"""Reddit image review and explicit Instagram publishing for one operator."""
+import hashlib
+import hmac
 import os
+import re
 import tempfile
-import requests
-from instagrapi import Client
-from PIL import Image
-from datetime import datetime
-import ai_content_optimizer
+from pathlib import Path
+from threading import Lock
+from urllib.parse import urlsplit
 
+import praw
+from flask import Flask, jsonify, render_template, request
+from instagrapi import Client
+from werkzeug.exceptions import HTTPException
+
+import ai_content_optimizer
+from configuration import DATA_DIR, ENV_FIELDS, read_config, update_config
+from media import prepare_image, is_reddit_image
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'your-secret-key'  # Change this
-app.config['SESSION_TYPE'] = 'filesystem'
-Session(app)
+app.config['MAX_CONTENT_LENGTH'] = 64 * 1024
+app.config['APP_USERNAME'] = os.environ.get('APP_USERNAME', 'admin')
+app.config['APP_PASSWORD'] = os.environ.get('APP_PASSWORD', '')
+if os.environ.get('RENDER') and not app.config['APP_PASSWORD']:
+    raise RuntimeError('Set APP_PASSWORD before starting the public Render service')
+publish_lock = Lock()
 
 
-@app.route('/')
+def error(message, code=400):
+    return jsonify(status='error', message=message, error=message), code
+
+
+def json_body():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        raise ValueError('Send a JSON object')
+    return data
+
+
+@app.before_request
+def protect_operator():
+    if request.path == '/healthz' and request.method == 'GET':
+        return None
+    password = app.config['APP_PASSWORD']
+    if password:
+        auth = request.authorization
+        if not (auth and auth.type == 'basic'
+                and hmac.compare_digest((auth.username or '').encode(), app.config['APP_USERNAME'].encode())
+                and hmac.compare_digest((auth.password or '').encode(), password.encode())):
+            response, code = error('Operator login required', 401)
+            response.headers['WWW-Authenticate'] = 'Basic realm="Pipeline"'
+            return response, code
+    if request.method == 'POST':
+        origin = request.headers.get('Origin')
+        expected_host = os.environ.get('RENDER_EXTERNAL_HOSTNAME') or request.host
+        if origin and urlsplit(origin).netloc != expected_host:
+            return error('Cross-origin requests are not allowed', 403)
+        if not request.is_json:
+            return error('Content-Type must be application/json', 415)
+
+
+@app.after_request
+def response_headers(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Referrer-Policy'] = 'same-origin'
+    if request.path != '/healthz' and not request.path.startswith('/static/'):
+        response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@app.errorhandler(ValueError)
+def invalid_input(exc):
+    return error(str(exc))
+
+
+@app.errorhandler(HTTPException)
+def http_error(exc):
+    return error(exc.description, exc.code)
+
+
+@app.errorhandler(Exception)
+def unexpected_error(exc):
+    app.logger.error('Request failed (%s)', type(exc).__name__)
+    return error('The request failed. Check credentials and provider availability, then retry.', 502)
+
+
+@app.get('/healthz')
+def health():
+    return jsonify(status='ok')
+
+
+@app.get('/')
 def index():
     return render_template('index.html')
 
 
-@app.route('/setup', methods=['POST'])
-def setup():
-    data = request.json
-    try:
-        # Save credentials to config
-        config = {
-            "reddit_credentials": {
-                "reddit_client_id": data['reddit_client_id'],
-                "reddit_client_secret": data['reddit_client_secret'],
-                "reddit_username": data['reddit_username']
-            },
-            "instagram": {
-                "instagram_username": data['instagram_username'],
-                "instagram_password": data['instagram_password']
-            }
-        }
-        
-        # Add OpenAI API key if provided
-        if 'openai_api_key' in data and data['openai_api_key']:
-            if 'openai' not in config:
-                config['openai'] = {}
-            config['openai']['api_key'] = data['openai_api_key']
-        
-        with open('config.json', 'w') as f:
-            json.dump(config, f)
-
-        return jsonify({"status": "success"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
-
-
-@app.route('/dashboard')
+@app.get('/dashboard')
 def dashboard():
     return render_template('dashboard.html')
 
 
-@app.route('/post-to-instagram', methods=['POST'])
-def post_to_instagram():
-    try:
-        post_data = request.json
-        if not post_data:
-            return jsonify({"status": "error", "message": "No post data received"}), 400
-
-        # Load Instagram credentials from config
-        try:
-            with open('config.json', 'r') as f:
-                config = json.load(f)
-                instagram_credentials = config['instagram']
-        except (FileNotFoundError, KeyError) as e:
-            return jsonify({
-                "status": "error",
-                "message": "Instagram credentials not found in config"
-            }), 400
-
-        # Create temp directory for media processing
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Download and process the image
-            image_url = post_data.get('url')
-            if not image_url:
-                return jsonify({
-                    "status": "error",
-                    "message": "No image URL provided"
-                }), 400
-
-            # Download image
-            try:
-                response = requests.get(image_url)
-                response.raise_for_status()
-
-                # Generate temporary file path
-                temp_image_path = os.path.join(temp_dir, f"temp_image_{datetime.now().timestamp()}.jpg")
-
-                # Save and process image
-                with open(temp_image_path, 'wb') as f:
-                    f.write(response.content)
-
-                # Process image with PIL
-                with Image.open(temp_image_path) as img:
-                    # Convert to RGB if necessary (Instagram requires RGB)
-                    if img.mode != 'RGB':
-                        img = img.convert('RGB')
-
-                    # Resize if necessary (Instagram max size is 1080x1350)
-                    max_size = (1080, 1350)
-                    if img.size[0] > max_size[0] or img.size[1] > max_size[1]:
-                        img.thumbnail(max_size, Image.Resampling.LANCZOS)
-
-                    # Save processed image
-                    img.save(temp_image_path, 'JPEG', quality=95)
-
-                # Initialize Instagram client
-                instagram = Client()
-                instagram.login(
-                    instagram_credentials['instagram_username'],
-                    instagram_credentials['instagram_password']
-                )
-
-                # Get caption from post data or use default
-                caption = post_data.get('caption', post_data.get('title', ''))
-
-                # Upload to Instagram
-                instagram.photo_upload(
-                    path=temp_image_path,
-                    caption=caption
-                )
-
-                return jsonify({
-                    "status": "success",
-                    "message": "Successfully posted to Instagram"
-                })
-
-            except requests.exceptions.RequestException as e:
-                return jsonify({
-                    "status": "error",
-                    "message": f"Failed to download image: {str(e)}"
-                }), 500
-
-            except Exception as e:
-                return jsonify({
-                    "status": "error",
-                    "message": f"Error processing image: {str(e)}"
-                }), 500
-
-    except Exception as e:
-        return jsonify({
-            "status": "error",
-            "message": f"Unexpected error: {str(e)}"
-        }), 500
-
-    finally:
-        # Cleanup (temp directory is automatically cleaned up)
-        if 'instagram' in locals():
-            try:
-                instagram.logout()
-            except:
-                pass
+@app.get('/configuration-status')
+def configuration_status():
+    config = read_config()
+    return jsonify({section: all(config[section].get(field) for field in fields)
+                    for section, fields in ENV_FIELDS.items()})
 
 
-@app.route('/fetch-posts', methods=['POST'])
+@app.post('/setup')
+def setup():
+    data = json_body()
+    updates = {}
+    for section, fields in ENV_FIELDS.items():
+        updates[section] = {}
+        for field in fields:
+            input_field = 'openai_api_key' if section == 'openai' else field
+            value = data.get(input_field, '')
+            if not isinstance(value, str) or len(value) > 4096:
+                raise ValueError('Credential fields must be strings under 4096 characters')
+            updates[section][field] = value if field == 'instagram_password' else value.strip()
+    update_config(updates)
+    return jsonify(status='success')
+
+
+@app.post('/fetch-posts')
 def fetch_posts():
-    try:
-        subreddits = request.json.get('subreddits', [])
-
-        if not subreddits:
-            return jsonify({
-                'error': 'No subreddits selected'
-            }), 400
-
-        # Load configuration
-        try:
-            with open('config.json', 'r') as f:
-                config = json.load(f)
-        except FileNotFoundError:
-            return jsonify({
-                'error': 'Configuration not found. Please set up credentials first.'
-            }), 400
-
-        # Initialize Reddit client
-        try:
-            reddit = praw.Reddit(
-                client_id=config['reddit_credentials']['reddit_client_id'],
-                client_secret=config['reddit_credentials']['reddit_client_secret'],
-                user_agent=config['reddit_credentials']['reddit_username']
-            )
-        except Exception as e:
-            return jsonify({
-                'error': f'Failed to initialize Reddit client: {str(e)}'
-            }), 500
-
-        posts = []
-        for subreddit_name in subreddits:
+    names = json_body().get('subreddits', [])
+    if not isinstance(names, list) or not 1 <= len(names) <= 10:
+        raise ValueError('Select between 1 and 10 subreddits')
+    if any(not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9_]{1,21}', name) for name in names):
+        raise ValueError('Use subreddit names without r/ or punctuation')
+    config = read_config()['reddit_credentials']
+    if not all(config.get(field) for field in ENV_FIELDS['reddit_credentials']):
+        return error('Set Reddit credentials on the setup page or in environment variables')
+    reddit = praw.Reddit(client_id=config['reddit_client_id'],
+                         client_secret=config['reddit_client_secret'],
+                         user_agent=config['reddit_username'],
+                         timeout=20, ratelimit_seconds=0)
+    posts, warnings, seen = [], [], set()
+    with reddit:
+        for name in dict.fromkeys(names):
             try:
-                subreddit = reddit.subreddit(subreddit_name)
-                for post in subreddit.hot(limit=10):
-                    if post.url.endswith(('.jpg', '.jpeg', '.png')):
-                        posts.append({
-                            'title': post.title,
-                            'url': post.url,
-                            'score': post.score,
-                            'id': post.id,
-                            'author': str(post.author),
-                            'subreddit': subreddit_name,
-                            'permalink': f"https://reddit.com{post.permalink}"
-                        })
-            except Exception as e:
-                return jsonify({
-                    'error': f'Error fetching posts from r/{subreddit_name}: {str(e)}'
-                }), 500
-
-        return jsonify({
-            'status': 'success',
-            'posts': posts
-        })
-
-    except Exception as e:
-        return jsonify({
-            'error': f'Unexpected error: {str(e)}'
-        }), 500
+                for post in reddit.subreddit(name).hot(limit=20):
+                    if post.id in seen or not is_reddit_image(post.url) or post.over_18:
+                        continue
+                    seen.add(post.id)
+                    posts.append(dict(title=post.title, url=post.url, score=post.score,
+                                      id=post.id, author=str(post.author), subreddit=name,
+                                      permalink=f'https://www.reddit.com{post.permalink}'))
+            except Exception:
+                warnings.append(f'Could not fetch r/{name}. Check access and Reddit credentials.')
+    if warnings and not posts:
+        return error(' '.join(warnings), 502)
+    posts.sort(key=lambda post: post['score'], reverse=True)
+    return jsonify(status='success', posts=posts, warnings=warnings)
 
 
-@app.route('/optimize-content', methods=['POST'])
-def optimize_content():
+@app.post('/post-to-instagram')
+def post_to_instagram():
+    data = json_body()
+    url = data.get('url')
+    caption = data.get('caption', data.get('title', ''))
+    if not isinstance(url, str) or not is_reddit_image(url):
+        raise ValueError('Choose a direct HTTPS image hosted by Reddit')
+    if not isinstance(caption, str) or len(caption) > 2200:
+        raise ValueError('Caption must be at most 2200 characters')
+    credentials = read_config()['instagram']
+    if not all(credentials.get(field) for field in ENV_FIELDS['instagram']):
+        return error('Set Instagram credentials on the setup page or in environment variables')
+    if not publish_lock.acquire(blocking=False):
+        return error('Another Instagram post is being published. Wait for it to finish.', 409)
     try:
-        data = request.json
-        if not data:
-            return jsonify({"status": "error", "message": "No data received"}), 400
-            
-        # Initialize AI client if not already initialized
-        if not ai_content_optimizer.client:
-            initialized = ai_content_optimizer.initialize_openai()
-            if not initialized:
-                return jsonify({
-                    "status": "error", 
-                    "message": "OpenAI API key not found. Please add it in the setup page."
-                }), 400
-        
-        original_caption = data.get('caption', '')
-        post_title = data.get('title', '')
-        subreddit = data.get('subreddit', '')
-        optimization_level = data.get('optimization_level', 'moderate')
-        
-        # Optimize caption
-        optimized_caption = ai_content_optimizer.optimize_caption(
-            original_caption, 
-            subreddit, 
-            post_title, 
-            optimization_level
-        )
-        
-        # Generate hashtags separately if requested
-        hashtags = None
-        if data.get('generate_hashtags', False):
-            hashtags = ai_content_optimizer.generate_hashtags(
-                subreddit,
-                post_title,
-                optimized_caption[:100]  # Just use the beginning of the caption
-            )
-            
-        # Get content analysis if requested
-        analysis = None
-        if data.get('analyze_content', False):
-            analysis = ai_content_optimizer.analyze_content_sentiment(
-                post_title,
-                optimized_caption
-            )
-        
-        return jsonify({
-            "status": "success",
-            "optimized_caption": optimized_caption,
-            "hashtags": hashtags,
-            "analysis": analysis
-        })
-        
-    except Exception as e:
-        return jsonify({
-            "status": "error",
-            "message": f"Error optimizing content: {str(e)}"
-        }), 500
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = prepare_image(url, Path(temp_dir) / 'photo.jpg')
+            instagram = Client()
+            instagram.request_timeout = 20
+            session_dir = DATA_DIR / 'instagram'
+            session_dir.mkdir(parents=True, exist_ok=True)
+            session_path = session_dir / (hashlib.sha256(credentials['instagram_username'].encode()).hexdigest() + '.json')
+            if session_path.exists():
+                instagram.load_settings(session_path)
+            if not instagram.login(credentials['instagram_username'], credentials['instagram_password']):
+                raise RuntimeError('Instagram login failed')
+            instagram.dump_settings(session_path)
+            result = instagram.photo_upload(path=path, caption=caption)
+            return jsonify(status='success', message='Successfully posted to Instagram', media_id=str(result.pk))
+    finally:
+        publish_lock.release()
+
+
+@app.post('/optimize-content')
+def optimize_content():
+    data = json_body()
+    for field in ('caption', 'title', 'subreddit'):
+        if not isinstance(data.get(field, ''), str) or len(data.get(field, '')) > 2200:
+            raise ValueError('Caption, title, and subreddit must be strings under 2200 characters')
+    level = data.get('optimization_level', 'moderate')
+    if level not in ('light', 'moderate', 'creative'):
+        raise ValueError('Unknown optimization level')
+    api_key = read_config()['openai']['api_key']
+    if not api_key:
+        return error('Add an OpenAI API key to enable caption optimization')
+    return jsonify(status='success', **ai_content_optimizer.optimize_content(data, api_key))
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host=os.environ.get('HOST', '127.0.0.1'), port=int(os.environ.get('PORT', '5000')),
+            debug=os.environ.get('FLASK_DEBUG') == '1')

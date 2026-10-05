@@ -9,28 +9,30 @@
             </div>
             <div class="card-body">
                 <form id="setupForm">
+                    <p id="configuration-status" class="text-muted">Blank fields keep existing credentials. Environment settings take precedence.</p>
+                    <p><a href="/dashboard">Open dashboard</a></p>
                     <h4>Reddit Credentials</h4>
                     <div class="mb-3">
                         <label class="form-label">Client ID</label>
-                        <input type="text" class="form-control" name="reddit_client_id" required>
+                        <input type="text" class="form-control" name="reddit_client_id">
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Client Secret</label>
-                        <input type="password" class="form-control" name="reddit_client_secret" required>
+                        <input type="password" class="form-control" name="reddit_client_secret">
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Username</label>
-                        <input type="text" class="form-control" name="reddit_username" required>
+                        <label class="form-label">Reddit User Agent</label>
+                        <input type="text" class="form-control" name="reddit_username" placeholder="RedditToInstagram/1.0 by your_username">
                     </div>
 
                     <h4>Instagram Credentials</h4>
                     <div class="mb-3">
                         <label class="form-label">Username</label>
-                        <input type="text" class="form-control" name="instagram_username" required>
+                        <input type="text" class="form-control" name="instagram_username">
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Password</label>
-                        <input type="password" class="form-control" name="instagram_password" required>
+                        <input type="password" class="form-control" name="instagram_password">
                     </div>
                     
                     <h4>AI Content Optimization <small class="text-muted">(Optional)</small></h4>
